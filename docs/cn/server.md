@@ -201,7 +201,7 @@ Server启动后你无法再修改其中的Service。
 
 # 启动
 
-调用以下[Server](https://github.com/brpc/brpc/blob/master/src/brpc/server.h)的接口启动服务。
+调用以下[Server](https://github.com/brpc/brpc/blob/master/src/brpc/server.h)的一下接口启动服务。
 
 ```c++
 int Start(const char* ip_and_port_str, const ServerOptions* opt);
@@ -249,11 +249,9 @@ server.RunUntilAskedToQuit();
 
 Join()完成后可以修改其中的Service，并重新Start。
 
-# 被http/h2访问
+# 被HTTP client访问
 
-使用Protobuf的服务通常可以通过http/h2+json访问，存于body的json串可与对应protobuf消息相互自动转化。
-
-以[echo server](https://github.com/brpc/brpc/blob/master/example/echo_c%2B%2B/server.cpp)为例，你可以用[curl](https://curl.haxx.se/)访问这个服务。
+使用Protobuf的服务通常可以通过HTTP+json访问，存于http body的json串可与对应protobuf消息相互转化。以[echo server](https://github.com/brpc/brpc/blob/master/example/echo_c%2B%2B/server.cpp)为例，你可以用[curl](https://curl.haxx.se/)访问这个服务。
 
 ```shell
 # -H 'Content-Type: application/json' is optional
@@ -261,7 +259,7 @@ $ curl -d '{"message":"hello"}' http://brpc.baidu.com:8765/EchoService/Echo
 {"message":"hello"}
 ```
 
-注意：也可以指定`Content-Type: application/proto`用http/h2+protobuf二进制串访问服务，序列化性能更好。
+注意：也可以指定`Content-Type: application/proto`用http+protobuf二进制串访问服务，序列化性能更好。
 
 ## json<=>pb
 
@@ -271,7 +269,7 @@ json字段通过匹配的名字和结构与pb字段一一对应。json中一定�
 
 ## 兼容早期版本client
 
-早期的brpc允许一个pb service被http协议访问时不填充pb请求，即使里面有required字段。一般来说这种service会自行解析http请求和设置http回复，并不会访问pb请求。但这也是非常危险的行为，毕竟这是pb service，但pb请求却是未定义的。
+早期的brpc允许一个pb service被http协议访问时不设置pb请求，即使里面有required字段。一般来说这种service会自行解析http请求和设置http回复，并不会访问pb请求。但这也是非常危险的行为，毕竟这是pb service，但pb请求却是未定义的。
 
 这种服务在升级到新版本rpc时会遇到障碍，因为brpc已不允许这种行为。为了帮助这种服务升级，brpc允许经过一些设置后不把http body自动转化为pb request(从而可自行处理），方法如下：
 
@@ -279,11 +277,11 @@ json字段通过匹配的名字和结构与pb字段一一对应。json中一定�
 brpc::ServiceOptions svc_opt;
 svc_opt.ownership = ...;
 svc_opt.restful_mappings = ...;
-svc_opt.allow_http_body_to_pb = false; //关闭http/h2 body至pb request的自动转化
+svc_opt.allow_http_body_to_pb = false; //关闭http body至pb request的自动转化
 server.AddService(service, svc_opt);
 ```
 
-如此设置后service收到http/h2请求后不会尝试把body转化为pb请求，所以pb请求总是未定义状态，用户得在`cntl->request_protocol() == brpc::PROTOCOL_HTTP || cntl->request_protocol() == brpc::PROTOCOL_H2`成立时自行解析body。
+如此设置后service收到http请求后不会尝试把body转化为pb请求，所以pb请求总是未定义状态，用户得在`cntl->request_protocol() == brpc::PROTOCOL_HTTP`认定请求是http时自行解析http body。
 
 相应地，当cntl->response_attachment()不为空且pb回复不为空时，框架不再报错，而是直接把cntl->response_attachment()作为回复的body。这个功能和设置allow_http_body_to_pb与否无关。如果放开自由度导致过多的用户犯错，可能会有进一步的调整。
 
@@ -295,9 +293,7 @@ server端会自动尝试其支持的协议，无需用户指定。`cntl->protoco
 
 - [流式RPC协议](streaming_rpc.md)，显示为"streaming_rpc", 默认启用。
 
-- http/1.0和http/1.1协议，显示为”http“，默认启用。
-
-- http/2和gRPC协议，显示为"h2c"(未加密)或"h2"(加密)，默认启用。
+- http 1.0/1.1，显示为”http“，默认启用。
 
 - RTMP协议，显示为"rtmp", 默认启用。
 
@@ -340,17 +336,6 @@ server端会自动尝试其支持的协议，无需用户指定。`cntl->protoco
 - 和UB相关的协议请阅读[实现NsheadService](nshead_service.md)。
 
 如果你有更多的协议需求，可以联系我们。
-
-# fork without exec
-一般来说，[fork](https://linux.die.net/man/3/fork)出的子进程应尽快调用[exec](https://linux.die.net/man/3/exec)以重置所有状态，中间只应调用满足async-signal-safe的函数。这么使用fork的brpc程序在之前的版本也不会有问题。
-
-但在一些场景中，用户想直接运行fork出的子进程，而不调用exec。由于fork只复制其调用者的线程，其余线程便随之消失了。对应到brpc中，bvar会依赖一个sampling_thread采样各种信息，在fork后便消失了，现象是很多bvar归零。
-
-最新版本的brpc会在fork后重建这个线程(如有必要)，从而使bvar在fork后能正常工作，再次fork也可以。已知问题是fork后cpu profiler不正常。然而，这并不意味着用户可随意地fork，不管是brpc还是上层应用都会大量地创建线程，它们在fork后不会被重建，因为：
-* 大部分fork会紧接exec，浪费了重建
-* 给代码编写带来很多的麻烦和复杂度
-
-brpc的策略是按需创建这类线程，同时fork without exec必须发生在所有可能创建这些线程的代码前。具体地说，至少**发生在初始化所有Server/Channel/应用代码前**，越早越好，不遵守这个约定的fork会导致程序不正常。另外，不支持fork without exec的lib相当普遍，最好避免这种用法。
 
 # 设置
 
@@ -470,7 +455,7 @@ baidu_std和hulu_pbrpc协议支持传递附件，这段数据由用户自定义�
 
 ## 开启SSL
 
-要开启SSL，首先确保代码依赖了最新的openssl库。如果openssl版本很旧，会有严重的安全漏洞，支持的加密算法也少，违背了开启SSL的初衷。然后设置`ServerOptions.ssl_options`，具体见[ssl_options.h](https://github.com/brpc/brpc/blob/master/src/brpc/ssl_options.h)。
+要开启SSL，首先确保代码依赖了最新的openssl库。如果openssl版本很旧，会有严重的安全漏洞，支持的加密算法也少，违背了开启SSL的初衷。然后设置`ServerOptions.ssl_options`，具体见[ssl_option.h](https://github.com/brpc/brpc/blob/master/src/brpc/ssl_option.h)。
 
 ```c++
 // Certificate structure

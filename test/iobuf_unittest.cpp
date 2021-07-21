@@ -1,19 +1,6 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+// Copyright (c) 2014 Baidu, Inc.
+// Author: Ge,Jun (gejun@baidu.com)
+// Date: 2010-12-04 11:59
 
 #include <gtest/gtest.h>
 #include <sys/types.h>
@@ -46,12 +33,7 @@ extern uint32_t block_cap(butil::IOBuf::Block const* b);
 extern IOBuf::Block* get_tls_block_head();
 extern int get_tls_block_count();
 extern void remove_tls_block_chain();
-extern IOBuf::Block* acquire_tls_block();
-extern IOBuf::Block* share_tls_block();
-extern void release_tls_block_chain(IOBuf::Block* b);
-extern uint32_t block_cap(IOBuf::Block const* b);
-extern uint32_t block_size(IOBuf::Block const* b);
-extern IOBuf::Block* get_portal_next(IOBuf::Block const* b);
+IOBuf::Block* get_portal_next(IOBuf::Block const* b);
 }
 }
 
@@ -116,7 +98,7 @@ static void check_memory_leak() {
             ++n;
         }
         ASSERT_EQ(n, s_set.size());
-        ASSERT_EQ(n, (size_t)butil::iobuf::get_tls_block_count());
+        ASSERT_EQ(n, butil::iobuf::get_tls_block_count());
     }
 }
 
@@ -305,10 +287,10 @@ TEST_F(IOBufTest, reserve) {
     b.append("hello world");
     ASSERT_EQ(0, b.unsafe_assign(a1, "prefix")); // `x' will not be copied
     ASSERT_EQ("prefihello world", b.to_string());
-    ASSERT_EQ((size_t)16, b.size());
+    ASSERT_EQ(16, b.size());
 
     // pop/append sth. from back-side and assign again.
-    ASSERT_EQ((size_t)5, b.pop_back(5));
+    ASSERT_EQ(5, b.pop_back(5));
     ASSERT_EQ("prefihello ", b.to_string());
     b.append("blahblahfoobar");
     ASSERT_EQ(0, b.unsafe_assign(a1, "goodorbad")); // `x' will not be copied
@@ -1327,10 +1309,10 @@ TEST_F(IOBufTest, append_from_fd_with_offset) {
     butil::IOPortal buf;
     char dummy[10 * 1024];
     buf.append(dummy, sizeof(dummy));
-    ASSERT_EQ((ssize_t)sizeof(dummy), buf.cut_into_file_descriptor(fd));
+    ASSERT_EQ(sizeof(dummy), buf.cut_into_file_descriptor(fd));
     for (size_t i = 0; i < sizeof(dummy); ++i) {
         butil::IOPortal b0;
-        ASSERT_EQ(sizeof(dummy) - i, (size_t)b0.pappend_from_file_descriptor(fd, i, sizeof(dummy))) << berror();
+        ASSERT_EQ(sizeof(dummy) - i, b0.pappend_from_file_descriptor(fd, i, sizeof(dummy))) << berror();
         char tmp[sizeof(dummy)];
         ASSERT_EQ(0, memcmp(dummy + i, b0.fetch(tmp, b0.length()), b0.length()));
     }
@@ -1370,7 +1352,7 @@ TEST_F(IOBufTest, cut_into_fd_with_offset_multithreaded) {
     for (int i = 0; i < number_per_thread * (int)ARRAY_SIZE(threads); ++i) {
         off_t offset = i * sizeof(int);
         butil::IOPortal in;
-        ASSERT_EQ((ssize_t)sizeof(int), in.pappend_from_file_descriptor(fd, offset, sizeof(int)));
+        ASSERT_EQ(sizeof(int), in.pappend_from_file_descriptor(fd, offset, sizeof(int)));
         int j;
         ASSERT_EQ(sizeof(j), in.cutn(&j, sizeof(j)));
         ASSERT_EQ(i, j);
@@ -1550,10 +1532,10 @@ TEST_F(IOBufTest, printed_as_binary) {
         "\\EC\\ED\\EE\\EF\\F0\\F1\\F2\\F3\\F4\\F5\\F6\\F7\\F8\\F9\\FA"
         "\\FB\\FC\\FD\\FE\\FF";
     std::ostringstream os;
-    os << butil::ToPrintable(buf, 256);
+    os << butil::PrintedAsBinary(buf, 256);
     ASSERT_STREQ(OUTPUT, os.str().c_str());
     os.str("");
-    os << butil::ToPrintable(str, 256);
+    os << butil::PrintedAsBinary(str, 256);
     ASSERT_STREQ(OUTPUT, os.str().c_str());
 }
 
@@ -1587,7 +1569,7 @@ static void my_free(void* m) {
 TEST_F(IOBufTest, append_user_data_and_consume) {
     butil::IOBuf b0;
     const int REP = 16;
-    const size_t len = REP * 256;
+    const int len = REP * 256;
     char* data = (char*)malloc(len);
     for (int i = 0; i < 256; ++i) {
         for (int j = 0; j < REP; ++j) {
@@ -1617,7 +1599,7 @@ TEST_F(IOBufTest, append_user_data_and_consume) {
 TEST_F(IOBufTest, append_user_data_and_share) {
     butil::IOBuf b0;
     const int REP = 16;
-    const size_t len = REP * 256;
+    const int len = REP * 256;
     char* data = (char*)malloc(len);
     for (int i = 0; i < 256; ++i) {
         for (int j = 0; j < REP; ++j) {
@@ -1634,7 +1616,7 @@ TEST_F(IOBufTest, append_user_data_and_share) {
     {
         butil::IOBuf bufs[256];
         for (int i = 0; i < 256; ++i) {
-            ASSERT_EQ((size_t)REP, b0.cutn(&bufs[i], REP));
+            ASSERT_EQ(REP, b0.cutn(&bufs[i], REP));
             ASSERT_EQ(len - (i+1) * REP, b0.size());
             if (i != 255) {
                 ASSERT_EQ(1UL, b0._ref_num());
@@ -1648,62 +1630,13 @@ TEST_F(IOBufTest, append_user_data_and_share) {
         ASSERT_EQ(NULL, my_free_params);
         for (int i = 0; i < 256; ++i) {
             std::string out = bufs[i].to_string();
-            ASSERT_EQ((size_t)REP, out.size());
+            ASSERT_EQ(REP, out.size());
             for (int j = 0; j < REP; ++j) {
                 ASSERT_EQ((char)i, out[j]);
             }
         }
     }
     ASSERT_EQ(data, my_free_params);
-}
-
-TEST_F(IOBufTest, share_tls_block) {
-    butil::iobuf::remove_tls_block_chain();
-    butil::IOBuf::Block* b = butil::iobuf::acquire_tls_block();
-    ASSERT_EQ(0u, butil::iobuf::block_size(b));
-
-    butil::IOBuf::Block* b2 = butil::iobuf::share_tls_block();
-    butil::IOBuf buf;
-    for (size_t i = 0; i < butil::iobuf::block_cap(b2); i++) {
-        buf.push_back('x');
-    }
-    // after pushing to b2, b2 is full but it is still head of tls block.
-    ASSERT_NE(b, b2);
-    butil::iobuf::release_tls_block_chain(b);
-    ASSERT_EQ(b, butil::iobuf::share_tls_block());
-    // After releasing b, now tls block is b(not full) -> b2(full) -> NULL
-    for (size_t i = 0; i < butil::iobuf::block_cap(b); i++) {
-        buf.push_back('x');
-    }
-    // now tls block is b(full) -> b2(full) -> NULL
-    butil::IOBuf::Block* head_block = butil::iobuf::share_tls_block();
-    ASSERT_EQ(0u, butil::iobuf::block_size(head_block));
-    ASSERT_NE(b, head_block);
-    ASSERT_NE(b2, head_block);
-}
-
-TEST_F(IOBufTest, acquire_tls_block) {
-    butil::iobuf::remove_tls_block_chain();
-    butil::IOBuf::Block* b = butil::iobuf::acquire_tls_block();
-    const size_t block_cap = butil::iobuf::block_cap(b);
-    butil::IOBuf buf;
-    for (size_t i = 0; i < block_cap; i++) {
-        buf.append("x");
-    }
-    ASSERT_EQ(1, butil::iobuf::get_tls_block_count());
-    butil::IOBuf::Block* head = butil::iobuf::get_tls_block_head();
-    ASSERT_EQ(butil::iobuf::block_cap(head), butil::iobuf::block_size(head));
-    butil::iobuf::release_tls_block_chain(b);
-    ASSERT_EQ(2, butil::iobuf::get_tls_block_count());
-    for (size_t i = 0; i < block_cap; i++) {
-        buf.append("x");
-    }
-    ASSERT_EQ(2, butil::iobuf::get_tls_block_count());
-    head = butil::iobuf::get_tls_block_head();
-    ASSERT_EQ(butil::iobuf::block_cap(head), butil::iobuf::block_size(head));
-    b = butil::iobuf::acquire_tls_block();
-    ASSERT_EQ(0, butil::iobuf::get_tls_block_count());
-    ASSERT_NE(butil::iobuf::block_cap(b), butil::iobuf::block_size(b));
 }
 
 } // namespace

@@ -1,29 +1,22 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
-
 // iobuf - A non-continuous zero-copied buffer
+// Copyright (c) 2012 Baidu, Inc.
+// 
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// 
+//     http://www.apache.org/licenses/LICENSE-2.0
+// 
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
+// Author: Ge,Jun (gejun@baidu.com)
 // Date: Thu Nov 22 13:57:56 CST 2012
 
 #include <openssl/ssl.h>                   // SSL_*
-#ifdef USE_MESALINK
-#include <mesalink/openssl/ssl.h>
-#include <mesalink/openssl/err.h>
-#endif
 #include <sys/syscall.h>                   // syscall
 #include <fcntl.h>                         // O_RDONLY
 #include <errno.h>                         // errno
@@ -285,12 +278,8 @@ IOBuf::Block* get_portal_next(IOBuf::Block const* b) {
     return b->portal_next;
 }
 
-uint32_t block_cap(IOBuf::Block const* b) {
+uint32_t block_cap(IOBuf::Block const *b) {
     return b->cap;
-}
-
-uint32_t block_size(IOBuf::Block const* b) {
-    return b->size;
 }
 
 inline IOBuf::Block* create_block(const size_t block_size) {
@@ -315,6 +304,12 @@ inline IOBuf::Block* create_block() {
 // release_tls_block_chain() may exceed this limit sometimes.
 const int MAX_BLOCKS_PER_THREAD = 8;
 
+// NOTE: not see differences in examples when CACHE_IOBUF_BLOCKREFS is turned on
+// (tcmalloc linked)
+#ifdef CACHE_IOBUF_BLOCKREFS
+const int MAX_BLOCKREFS_PER_THREAD = 8;
+#endif
+
 struct TLSData {
     // Head of the TLS block chain.
     IOBuf::Block* block_head;
@@ -324,9 +319,19 @@ struct TLSData {
     
     // True if the remote_tls_block_chain is registered to the thread.
     bool registered;
+
+#ifdef CACHE_IOBUF_BLOCKREFS
+    // Reuse array of BlockRef
+    int num_blockrefs;
+    IOBuf::BlockRef* blockrefs[MAX_BLOCKREFS_PER_THREAD];
+#endif
 };
 
+#ifdef CACHE_IOBUF_BLOCKREFS
+static __thread TLSData g_tls_data = { NULL, 0, false, 0, {} };
+#else
 static __thread TLSData g_tls_data = { NULL, 0, false };
+#endif
 
 // Used in UT
 IOBuf::Block* get_tls_block_head() { return g_tls_data.block_head; }
@@ -358,7 +363,7 @@ void remove_tls_block_chain() {
 
 // Get a (non-full) block from TLS.
 // Notice that the block is not removed from TLS.
-IOBuf::Block* share_tls_block() {
+inline IOBuf::Block* share_tls_block() {
     TLSData& tls_data = g_tls_data;
     IOBuf::Block* const b = tls_data.block_head;
     if (b != NULL && !b->full()) {
@@ -366,13 +371,9 @@ IOBuf::Block* share_tls_block() {
     }
     IOBuf::Block* new_block = NULL;
     if (b) {
-        new_block = b;
-        while (new_block && new_block->full()) {
-            IOBuf::Block* const saved_next = new_block->portal_next;
-            new_block->dec_ref();
-            --tls_data.num_blocks;
-            new_block = saved_next;
-        }
+        new_block = b->portal_next;
+        b->dec_ref();
+        --tls_data.num_blocks;
     } else if (!tls_data.registered) {
         tls_data.registered = true;
         // Only register atexit at the first time
@@ -412,7 +413,7 @@ inline void release_tls_block(IOBuf::Block *b) {
 
 // Return chained blocks to TLS.
 // NOTE: b MUST be non-NULL and all blocks linked SHOULD not be full.
-void release_tls_block_chain(IOBuf::Block* b) {
+inline void release_tls_block_chain(IOBuf::Block* b) {
     TLSData& tls_data = g_tls_data;
     size_t n = 0;
     if (tls_data.num_blocks >= MAX_BLOCKS_PER_THREAD) {
@@ -446,13 +447,13 @@ void release_tls_block_chain(IOBuf::Block* b) {
 }
 
 // Get and remove one (non-full) block from TLS. If TLS is empty, create one.
-IOBuf::Block* acquire_tls_block() {
+inline IOBuf::Block* acquire_tls_block() {
     TLSData& tls_data = g_tls_data;
     IOBuf::Block* b = tls_data.block_head;
     if (!b) {
         return create_block();
     }
-    while (b->full()) {
+    if (b->full()) {
         IOBuf::Block* const saved_next = b->portal_next;
         b->dec_ref();
         tls_data.block_head = saved_next;
@@ -468,16 +469,37 @@ IOBuf::Block* acquire_tls_block() {
     return b;
 }
 
+inline IOBuf::BlockRef* acquire_blockref_array() {
+#ifdef CACHE_IOBUF_BLOCKREFS
+    TLSData& tls_data = g_tls_data;
+    if (tls_data.num_blockrefs) {
+        return tls_data.blockrefs[--tls_data.num_blockrefs];
+    }
+#endif
+    iobuf::g_newbigview.fetch_add(1, butil::memory_order_relaxed);
+    return new IOBuf::BlockRef[IOBuf::INITIAL_CAP];
+}
+
 inline IOBuf::BlockRef* acquire_blockref_array(size_t cap) {
+#ifdef CACHE_IOBUF_BLOCKREFS
+    if (cap == IOBuf::INITIAL_CAP) {
+        return acquire_blockref_array();
+    }
+#endif
     iobuf::g_newbigview.fetch_add(1, butil::memory_order_relaxed);
     return new IOBuf::BlockRef[cap];
 }
 
-inline IOBuf::BlockRef* acquire_blockref_array() {
-    return acquire_blockref_array(IOBuf::INITIAL_CAP);
-}
-
 inline void release_blockref_array(IOBuf::BlockRef* refs, size_t cap) {
+#ifdef CACHE_IOBUF_BLOCKREFS
+    if (cap == IOBuf::INITIAL_CAP) {
+        TLSData& tls_data = g_tls_data;
+        if (tls_data.num_blockrefs < MAX_BLOCKREFS_PER_THREAD) {
+            tls_data.blockrefs[tls_data.num_blockrefs++] = refs;
+            return;
+        }
+    }
+#endif
     delete[] refs;
 }
 
@@ -638,13 +660,10 @@ void IOBuf::_push_or_move_back_ref_to_bigview(const BlockRef& r) {
 template void IOBuf::_push_or_move_back_ref_to_bigview<true>(const BlockRef&);
 template void IOBuf::_push_or_move_back_ref_to_bigview<false>(const BlockRef&);
 
-template <bool MOVEOUT>
-int IOBuf::_pop_or_moveout_front_ref() {
+int IOBuf::_pop_front_ref() {
     if (_small()) {
         if (_sv.refs[0].block != NULL) {
-            if (!MOVEOUT) {
-                _sv.refs[0].block->dec_ref();
-            }
+            _sv.refs[0].block->dec_ref();
             _sv.refs[0] = _sv.refs[1];
             reset_block_ref(_sv.refs[1]);
             return 0;
@@ -653,9 +672,7 @@ int IOBuf::_pop_or_moveout_front_ref() {
     } else {
         // _bv.nref must be greater than 2
         const uint32_t start = _bv.start;
-        if (!MOVEOUT) {
-            _bv.refs[start].block->dec_ref();
-        }
+        _bv.refs[start].block->dec_ref();
         if (--_bv.nref > 2) {
             _bv.start = (start + 1) & _bv.cap_mask;
             _bv.nbytes -= _bv.refs[start].length;
@@ -669,9 +686,6 @@ int IOBuf::_pop_or_moveout_front_ref() {
         return 0;
     }
 }
-// Explicitly initialize templates.
-template int IOBuf::_pop_or_moveout_front_ref<true>();
-template int IOBuf::_pop_or_moveout_front_ref<false>();
 
 int IOBuf::_pop_back_ref() {
     if (_small()) {
@@ -746,12 +760,12 @@ size_t IOBuf::pop_front(size_t n) {
     return saved_n;
 }
 
-bool IOBuf::cut1(void* c) {
+bool IOBuf::cut1(char* c) {
     if (empty()) {
         return false;
     }
     IOBuf::BlockRef &r = _front_ref();
-    *(char*)c = r.block->data[r.offset];
+    *c = r.block->data[r.offset];
     if (r.length > 1) {
         ++r.offset;
         --r.length;
@@ -795,9 +809,9 @@ size_t IOBuf::cutn(IOBuf* out, size_t n) {
     while (n) {   // length() == 0 does not enter
         IOBuf::BlockRef &r = _front_ref();
         if (r.length <= n) {
+            out->_push_back_ref(r);
             n -= r.length;
-            out->_move_back_ref(r);
-            _moveout_front_ref();
+            _pop_front_ref();
         } else {
             const IOBuf::BlockRef cr = { r.offset, (uint32_t)n, r.block };
             out->_push_back_ref(cr);
@@ -850,7 +864,8 @@ size_t IOBuf::cutn(std::string* out, size_t n) {
     }
     const size_t old_size = out->size();
     out->resize(out->size() + n);
-    return cutn(&(*out)[old_size], n);
+    cutn(&out[0][old_size], n);
+    return n;
 }
 
 int IOBuf::_cut_by_char(IOBuf* out, char d) {
@@ -1018,7 +1033,6 @@ ssize_t IOBuf::cut_multiple_into_SSL_channel(SSL* ssl, IOBuf* const* pieces,
         }
     }
 
-#ifndef USE_MESALINK
     // Flush remaining data inside the BIO buffer layer
     BIO* wbio = SSL_get_wbio(ssl);
     if (BIO_wpending(wbio) > 0) {
@@ -1029,14 +1043,6 @@ ssize_t IOBuf::cut_multiple_into_SSL_channel(SSL* ssl, IOBuf* const* pieces,
             return rc;
         }
     }
-#else
-    int rc = SSL_flush(ssl);
-    if (rc <= 0) {
-        *ssl_error = SSL_ERROR_SYSCALL;
-        return rc;
-    }
-#endif
-
     return nw;
 }
 
@@ -1389,10 +1395,10 @@ size_t IOBuf::copy_to(void* d, size_t n, size_t pos) const {
 
 size_t IOBuf::copy_to(std::string* s, size_t n, size_t pos) const {
     const size_t len = length();
-    if (len <= pos) {
-        return 0;
-    }
-    if (n > len - pos) {  // note: n + pos may overflow
+    if (n + pos > len) {
+        if (len <= pos) {
+            return 0;
+        }
         n = len - pos;
     }
     s->resize(n);
@@ -1401,10 +1407,10 @@ size_t IOBuf::copy_to(std::string* s, size_t n, size_t pos) const {
 
 size_t IOBuf::append_to(std::string* s, size_t n, size_t pos) const {
     const size_t len = length();
-    if (len <= pos) {
-        return 0;
-    }
-    if (n > len - pos) {  // note: n + pos may overflow
+    if (n + pos > len) {
+        if (len <= pos) {
+            return 0;
+        }
         n = len - pos;
     }
     const size_t old_size = s->size();
@@ -1457,6 +1463,94 @@ std::ostream& operator<<(std::ostream& os, const IOBuf& buf) {
         StringPiece blk = buf.backing_block(i);
         os.write(blk.data(), blk.size());
     }
+    return os;
+}
+
+static char s_binary_char_map[] = {
+    '0', '1', '2', '3', '4', '5', '6', '7', '8', '9',
+    'A', 'B', 'C', 'D', 'E', 'F'
+};
+
+class BinaryCharPrinter {
+public:
+    static const size_t BUF_SIZE = 127;
+    explicit BinaryCharPrinter(std::ostream& os)
+        : _n(0), _os(&os) {}
+    ~BinaryCharPrinter() { flush(); }
+    void operator<<(unsigned char c);
+    void flush();
+private:
+    uint32_t _n;
+    std::ostream* _os;
+    char _buf[BUF_SIZE];
+};
+
+void BinaryCharPrinter::flush() {
+    if (_n > 0) {
+        _os->write(_buf, _n);
+        _n = 0;
+    }
+}
+
+inline void BinaryCharPrinter::operator<<(unsigned char c) {
+    if (_n > BUF_SIZE - 3) {
+        _os->write(_buf, _n);
+        _n = 0;
+    }
+    if (c >= 32 && c <= 126) { // displayable ascii characters
+        if (c != '\\') {
+            _buf[_n++] = c;
+        } else {
+            _buf[_n++] = '\\';
+            _buf[_n++] = '\\';
+        }
+    } else {
+        _buf[_n++] = '\\';
+        switch (c) {
+        case '\b': _buf[_n++] = 'b'; break;
+        case '\t': _buf[_n++] = 't'; break;
+        case '\n': _buf[_n++] = 'n'; break;
+        case '\r': _buf[_n++] = 'r'; break;
+        default: 
+            _buf[_n++] = s_binary_char_map[c >> 4];
+            _buf[_n++] = s_binary_char_map[c & 0xF];
+            break;
+        }
+    }
+}
+
+void PrintedAsBinary::print(std::ostream& os) const {
+    if (_iobuf) {
+        const size_t n = _iobuf->backing_block_num();
+        size_t nw = 0;
+        BinaryCharPrinter printer(os);
+        for (size_t i = 0; i < n; ++i) {
+            StringPiece blk = _iobuf->backing_block(i);
+            for (size_t j = 0; j < blk.size(); ++j) {
+                if (nw >= _max_length) {
+                    printer.flush();
+                    os << "...<skipping " << _iobuf->size() - nw << " bytes>";
+                    return;
+                }
+                ++nw;
+                printer << blk[j];
+            }
+        }
+    } else if (!_data.empty()) {
+        BinaryCharPrinter printer(os);
+        for (size_t i = 0; i < _data.size(); ++i) {
+            if (i >= _max_length) {
+                printer.flush();
+                os << "...<skipping " << _data.size() - i << " bytes>";
+                return;
+            }
+            printer << _data[i];
+        }
+    }
+}
+
+std::ostream& operator<<(std::ostream& os, const PrintedAsBinary& binary_buf) {
+    binary_buf.print(os);
     return os;
 }
 
@@ -1714,135 +1808,6 @@ void IOPortal::return_cached_blocks_impl(Block* b) {
     iobuf::release_tls_block_chain(b);
 }
 
-//////////////// IOBufCutter ////////////////
-
-IOBufCutter::IOBufCutter(butil::IOBuf* buf)
-    : _data(NULL)
-    , _data_end(NULL)
-    , _block(NULL)
-    , _buf(buf) {
-}
-
-IOBufCutter::~IOBufCutter() {
-    if (_block) {
-        if (_data != _data_end) {
-            IOBuf::BlockRef& fr = _buf->_front_ref();
-            CHECK_EQ(fr.block, _block);
-            fr.offset = (uint32_t)((char*)_data - _block->data);
-            fr.length = (uint32_t)((char*)_data_end - (char*)_data);
-        } else {
-            _buf->_pop_front_ref();
-        }
-    }
-}
-bool IOBufCutter::load_next_ref() {
-    if (_block) {
-        _buf->_pop_front_ref();
-    }
-    if (!_buf->_ref_num()) {
-        _data = NULL;
-        _data_end = NULL;
-        _block = NULL;
-        return false;
-    } else {
-        const IOBuf::BlockRef& r = _buf->_front_ref();
-        _data = r.block->data + r.offset;
-        _data_end = (char*)_data + r.length;
-        _block = r.block;
-        return true;
-    }
-}
-
-size_t IOBufCutter::slower_copy_to(void* dst, size_t n) {
-    size_t size = (char*)_data_end - (char*)_data;
-    if (size == 0) {
-        if (!load_next_ref()) {
-            return 0;
-        }
-        size = (char*)_data_end - (char*)_data;
-        if (n <= size) {
-            memcpy(dst, _data, n);
-            return n;
-        }
-    }
-    void* const saved_dst = dst;
-    memcpy(dst, _data, size);
-    dst = (char*)dst + size;
-    n -= size;
-    const size_t nref = _buf->_ref_num();
-    for (size_t i = 1; i < nref; ++i) {
-        const IOBuf::BlockRef& r = _buf->_ref_at(i);
-        const size_t nc = std::min(n, (size_t)r.length);
-        memcpy(dst, r.block->data + r.offset, nc);
-        dst = (char*)dst + nc;
-        n -= nc;
-        if (n == 0) {
-            break;
-        }
-    }
-    return (char*)dst - (char*)saved_dst;
-}
-
-size_t IOBufCutter::cutn(butil::IOBuf* out, size_t n) {
-    if (n == 0) {
-        return 0;
-    }
-    const size_t size = (char*)_data_end - (char*)_data;
-    if (n <= size) {
-        const IOBuf::BlockRef r = { (uint32_t)((char*)_data - _block->data),
-                                    (uint32_t)n,
-                                    _block };
-        out->_push_back_ref(r);
-        _data = (char*)_data + n;
-        return n; 
-    } else if (size != 0) {
-        const IOBuf::BlockRef r = { (uint32_t)((char*)_data - _block->data),
-                                    (uint32_t)size,
-                                    _block };
-        out->_push_back_ref(r);
-        _buf->_pop_front_ref();
-        _data = NULL;
-        _data_end = NULL;
-        _block = NULL;
-        return _buf->cutn(out, n - size) + size;
-    } else {
-        if (_block) {
-            _data = NULL;
-            _data_end = NULL;
-            _block = NULL;
-            _buf->_pop_front_ref();
-        }
-        return _buf->cutn(out, n);
-    }
-}
-
-size_t IOBufCutter::cutn(void* out, size_t n) {
-    if (n == 0) {
-        return 0;
-    }
-    const size_t size = (char*)_data_end - (char*)_data;
-    if (n <= size) {
-        memcpy(out, _data, n);
-        _data = (char*)_data + n;
-        return n;
-    } else if (size != 0) {
-        memcpy(out, _data, size);
-        _buf->_pop_front_ref();
-        _data = NULL;
-        _data_end = NULL;
-        _block = NULL;
-        return _buf->cutn((char*)out + size, n - size) + size;
-    } else {
-        if (_block) {
-            _data = NULL;
-            _data_end = NULL;
-            _block = NULL;
-            _buf->_pop_front_ref();
-        }
-        return _buf->cutn(out, n);
-    }
-}
-
 IOBufAsZeroCopyInputStream::IOBufAsZeroCopyInputStream(const IOBuf& buf)
     : _ref_index(0)
     , _add_offset(0)
@@ -2092,37 +2057,6 @@ IOBufAppender::IOBufAppender()
     : _data(NULL)
     , _data_end(NULL)
     , _zc_stream(&_buf) {
-}
-
-size_t IOBufBytesIterator::append_and_forward(butil::IOBuf* buf, size_t n) {
-    size_t nc = 0;
-    while (nc < n && _bytes_left != 0) {
-        const IOBuf::BlockRef& r = _buf->_ref_at(_block_count - 1);
-        const size_t block_size = _block_end - _block_begin;
-        const size_t to_copy = std::min(block_size, n - nc);
-        IOBuf::BlockRef r2 = { (uint32_t)(_block_begin - r.block->data),
-                               (uint32_t)to_copy, r.block };
-        buf->_push_back_ref(r2);
-        _block_begin += to_copy;
-        _bytes_left -= to_copy;
-        nc += to_copy;
-        if (_block_begin == _block_end) {
-            try_next_block();
-        }
-    }
-    return nc;
-}
-
-bool IOBufBytesIterator::forward_one_block(const void** data, size_t* size) {
-    if (_bytes_left == 0) {
-        return false;
-    }
-    const size_t block_size = _block_end - _block_begin;
-    *data = _block_begin;
-    *size = block_size;
-    _bytes_left -= block_size;
-    try_next_block();
-    return true;
 }
 
 }  // namespace butil

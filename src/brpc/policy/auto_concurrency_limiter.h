@@ -1,19 +1,18 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// Copyright (c) 2014 Baidu, Inc.G
+// 
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+//     http://www.apache.org/licenses/LICENSE-2.0
 //
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+//
+// Authors: Lei He (helei@qiyi.com)
 
 #ifndef BRPC_POLICY_AUTO_CONCURRENCY_LIMITER_H
 #define BRPC_POLICY_AUTO_CONCURRENCY_LIMITER_H
@@ -52,7 +51,7 @@ private:
         int64_t total_succ_us;
     };
 
-    bool AddSample(int error_code, int64_t latency_us, int64_t sampling_time_us);
+    void AddSample(int error_code, int64_t latency_us, int64_t sampling_time_us);
     int64_t NextResetTime(int64_t sampling_time_us);
 
     // The following methods are not thread safe and can only be called 
@@ -60,9 +59,7 @@ private:
     void UpdateMaxConcurrency(int64_t sampling_time_us);
     void ResetSampleWindow(int64_t sampling_time_us);
     void UpdateMinLatency(int64_t latency_us);
-    void UpdateQps(double qps);
-
-    void AdjustMaxConcurrency(int next_max_concurrency);
+    void UpdateQps(int32_t succ_count, int64_t sampling_time_us);
 
     // modified per sample-window or more
     int _max_concurrency;
@@ -70,7 +67,6 @@ private:
     int64_t _reset_latency_us;
     int64_t _min_latency_us; 
     double _ema_max_qps;
-    double _explore_ratio;
   
     // modified per sample.
     butil::atomic<int64_t> BAIDU_CACHELINE_ALIGNMENT _last_sampling_time_us;

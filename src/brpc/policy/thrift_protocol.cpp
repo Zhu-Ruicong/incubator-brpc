@@ -1,20 +1,18 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+// Copyright (c) 2015 Baidu, Inc.
+// 
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// 
+//     http://www.apache.org/licenses/LICENSE-2.0
+// 
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
+// Authors: wangxuefeng (wangxuefeng@didichuxing.com)
 
 #include <google/protobuf/descriptor.h>         // MethodDescriptor
 #include <google/protobuf/message.h>            // Message
@@ -51,7 +49,7 @@
 #endif
 
 extern "C" {
-void bthread_assign_data(void* data);
+void bthread_assign_data(void* data) __THROW;
 }
 
 namespace brpc {
@@ -189,9 +187,8 @@ public:
     // [Required] Call this to send response back to the client.
     void Run() override;
 
-    // Suspend/resume calling DoRun().
-    void SuspendRunning();
-    void ResumeRunning();
+    // Run() is suspended before this method is called.
+    void AllowToRun();
 
 private:
     void DoRun();
@@ -205,25 +202,21 @@ friend void ProcessThriftRequest(InputMessageBase* msg_base);
 };
 
 inline ThriftClosure::ThriftClosure()
-    : _run_counter(1), _received_us(0) {
+    : _run_counter(0), _received_us(0) {
 }
 
 ThriftClosure::~ThriftClosure() {
     LogErrorTextAndDelete(false)(&_controller);
 }
 
-inline void ThriftClosure::SuspendRunning() {
-    _run_counter.fetch_add(1, butil::memory_order_relaxed);
-}
-
-inline void ThriftClosure::ResumeRunning() {
-    if (_run_counter.fetch_sub(1, butil::memory_order_relaxed) == 1) {
+inline void ThriftClosure::AllowToRun() {
+    if (_run_counter.fetch_add(1, butil::memory_order_relaxed) == 1) {
         DoRun();
     }
 }
 
 void ThriftClosure::Run() {
-    if (_run_counter.fetch_sub(1, butil::memory_order_relaxed) == 1) {
+    if (_run_counter.fetch_add(1, butil::memory_order_relaxed) == 1) {
         DoRun();
     }
 }
@@ -392,9 +385,8 @@ inline void ProcessThriftFramedRequestNoExcept(ThriftService* service,
                                                    ThriftFramedMessage* req,
                                                    ThriftFramedMessage* res,
                                                    ThriftClosure* done) {
-    // NOTE: done is not actually run before ResumeRunning() is called so that
+    // NOTE: done is not actually run before AllowToRun() is called so that
     // we can still set `cntl' in the catch branch.
-    done->SuspendRunning();
     try {
         service->ProcessThriftFramedRequest(cntl, req, res, done);
     } catch (std::exception& e) {
@@ -406,7 +398,7 @@ inline void ProcessThriftFramedRequestNoExcept(ThriftService* service,
     } catch (...) {
         cntl->SetFailed(EINTERNAL, "Catched unknown exception");
     }
-    done->ResumeRunning();
+    done->AllowToRun();
 }
 
 struct CallMethodInBackupThreadArgs {
@@ -451,7 +443,6 @@ void ProcessThriftRequest(InputMessageBase* msg_base) {
     ScopedNonServiceError non_service_error(server);
 
     ThriftClosure* thrift_done = new ThriftClosure;
-    ClosureGuard done_guard(thrift_done);
     Controller* cntl = &(thrift_done->_controller);
     ThriftFramedMessage* req = &(thrift_done->_request);
     ThriftFramedMessage* res = &(thrift_done->_response);
@@ -467,7 +458,6 @@ void ProcessThriftRequest(InputMessageBase* msg_base) {
         .set_remote_side(socket->remote_side())
         .set_local_side(socket->local_side())
         .set_request_protocol(PROTOCOL_THRIFT)
-        .set_begin_time_us(msg_base->received_us())
         .move_in_server_receiving_sock(socket_guard);
 
     uint32_t seq_id;
@@ -475,7 +465,8 @@ void ProcessThriftRequest(InputMessageBase* msg_base) {
     butil::Status st = ReadThriftMessageBegin(
         &msg->payload, &cntl->_thrift_method_name, &mtype, &seq_id);
     if (!st.ok()) {
-        return cntl->SetFailed(EREQUEST, "%s", st.error_cstr());
+        cntl->SetFailed(EREQUEST, "%s", st.error_cstr());
+        return thrift_done->Run();
     }
     msg->payload.swap(req->body);
     req->field_id = THRIFT_REQUEST_FID;
@@ -486,7 +477,8 @@ void ProcessThriftRequest(InputMessageBase* msg_base) {
         LOG_EVERY_SECOND(ERROR)
             << "Received thrift request however the server does not set"
             " ServerOptions.thrift_service, close the connection.";
-        return cntl->SetFailed(EINTERNAL, "ServerOptions.thrift_service is NULL");
+        cntl->SetFailed(EINTERNAL, "ServerOptions.thrift_service is NULL");
+        return thrift_done->Run();
     }
 
     // Switch to service-specific error.
@@ -494,9 +486,10 @@ void ProcessThriftRequest(InputMessageBase* msg_base) {
     MethodStatus* method_status = service->_status;
     if (method_status) {
         if (!method_status->OnRequested()) {
-            return cntl->SetFailed(ELIMIT, "Reached %s's max_concurrency=%d",
+            cntl->SetFailed(ELIMIT, "Reached %s's max_concurrency=%d",
                             cntl->thrift_method_name().c_str(),
                             method_status->MaxConcurrency());
+            return thrift_done->Run();
         }
     }
 
@@ -517,21 +510,27 @@ void ProcessThriftRequest(InputMessageBase* msg_base) {
         span->set_request_size(sizeof(thrift_head_t) + req->body.size());
     }
 
-    if (!server->IsRunning()) {
-        return cntl->SetFailed(ELOGOFF, "Server is stopping");
-    }
-    if (socket->is_overcrowded()) {
-        return cntl->SetFailed(EOVERCROWDED, "Connection to %s is overcrowded",
-                butil::endpoint2str(socket->remote_side()).c_str());
-    }
-    if (!server_accessor.AddConcurrency(cntl)) {
-        return cntl->SetFailed(ELIMIT, "Reached server's max_concurrency=%d",
-                server->options().max_concurrency);
-    }
-    if (FLAGS_usercode_in_pthread && TooManyUserCode()) {
-        return cntl->SetFailed(ELIMIT, "Too many user code to run when"
-                " -usercode_in_pthread is on");
-    }
+    do {
+        if (!server->IsRunning()) {
+            cntl->SetFailed(ELOGOFF, "Server is stopping");
+            break;
+        }
+        if (socket->is_overcrowded()) {
+            cntl->SetFailed(EOVERCROWDED, "Connection to %s is overcrowded",
+                            butil::endpoint2str(socket->remote_side()).c_str());
+            break;
+        }
+        if (!server_accessor.AddConcurrency(cntl)) {
+            cntl->SetFailed(ELIMIT, "Reached server's max_concurrency=%d",
+                            server->options().max_concurrency);
+            break;
+        }
+        if (FLAGS_usercode_in_pthread && TooManyUserCode()) {
+            cntl->SetFailed(ELIMIT, "Too many user code to run when"
+                            " -usercode_in_pthread is on");
+            break;
+        }
+    } while (false);
 
     msg.reset();  // optional, just release resourse ASAP
 
@@ -540,8 +539,6 @@ void ProcessThriftRequest(InputMessageBase* msg_base) {
         span->set_start_callback_us(butil::cpuwide_time_us());
         span->AsParent();
     }
-
-    done_guard.release();
 
     if (!FLAGS_usercode_in_pthread) {
         return ProcessThriftFramedRequestNoExcept(service, cntl, req, res, thrift_done);
@@ -686,14 +683,14 @@ void SerializeThriftRequest(butil::IOBuf* request_buf, Controller* cntl,
         p += 6;
         *p = '\0';
         xfer += oprot.writeStructBegin(struct_begin_str);
-        xfer += oprot.writeFieldBegin("request", ::apache::thrift::protocol::T_STRUCT,
-                                      THRIFT_REQUEST_FID);
+        //xfer += oprot.writeFieldBegin("request", ::apache::thrift::protocol::T_STRUCT,
+                                      //THRIFT_REQUEST_FID);
 
         // request's write
         xfer += req->raw_instance()->Write(&oprot);
         
-        xfer += oprot.writeFieldEnd();
-        xfer += oprot.writeFieldStop();
+        //xfer += oprot.writeFieldEnd();
+        //xfer += oprot.writeFieldStop();
         xfer += oprot.writeStructEnd();
 
         oprot.writeMessageEnd();
@@ -729,7 +726,7 @@ void PackThriftRequest(
     const butil::IOBuf& request,
     const Authenticator*) {
     ControllerPrivateAccessor accessor(cntl);
-    if (cntl->connection_type() == CONNECTION_TYPE_SINGLE) {
+    if (accessor.connection_type() == CONNECTION_TYPE_SINGLE) {
         return cntl->SetFailed(
             EINVAL, "thrift protocol can't work with CONNECTION_TYPE_SINGLE");
     }

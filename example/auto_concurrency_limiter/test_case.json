@@ -30,6 +30,12 @@
     "qps_stage_list":
     [
         {
+            "lower_bound":100,
+            "upper_bound":1500,
+            "duration_sec":10,
+            "type":2
+        },
+        {
             "lower_bound":1500,
             "upper_bound":1500,
             "duration_sec":190,
@@ -53,6 +59,12 @@
     "max_concurrency":"auto",
     "qps_stage_list":
     [
+        {
+            "lower_bound":100,
+            "upper_bound":300,
+            "duration_sec":10,
+            "type":2
+        },
         {
             "lower_bound":300,
             "upper_bound":1800,
@@ -78,6 +90,12 @@
     "qps_stage_list":
     [
         {
+            "lower_bound":200,
+            "upper_bound":3000,
+            "duration_sec":20,
+            "type":2
+        },
+        {
             "lower_bound":3000,
             "upper_bound":3000,
             "duration_sec":180,
@@ -100,6 +118,12 @@
     "max_concurrency":"auto",
     "qps_stage_list":
     [
+        {
+            "lower_bound":200,
+            "upper_bound":3000,
+            "duration_sec":20,
+            "type":2
+        },
         {
             "lower_bound":3000,
             "upper_bound":3000,
@@ -189,6 +213,37 @@
     ]
 },
 
+
+{
+    "case_name":"qps_fluctuate_noload, latency_fluctuate_noload",
+    "max_concurrency":"auto",
+    "qps_stage_list":
+    [
+        {
+            "lower_bound":100,
+            "upper_bound":300,
+            "duration_sec":10,
+            "type":2
+        },
+        {
+            "lower_bound":300,
+            "upper_bound":1800,
+            "duration_sec":190,
+            "type":1
+        }
+    ],
+    "latency_stage_list":
+    [
+        {
+            "lower_bound":30000,
+            "upper_bound":50000,
+            "duration_sec":200,
+            "type":1
+        }
+    ]
+},
+
+
 {
     "case_name":"qps_stable_noload, latency_leap_raise",
     "max_concurrency":"auto",
@@ -222,32 +277,6 @@
             "type":2
         }
     ]
-},
-
-{
-    "case_name":"qps_fluctuate_noload, latency_fluctuate_noload",
-    "max_concurrency":"auto",
-    "qps_stage_list":
-    [
-        {
-            "lower_bound":300,
-            "upper_bound":1800,
-            "duration_sec":190,
-            "type":1
-        }
-    ],
-    "latency_stage_list":
-    [
-        {
-            "lower_bound":30000,
-            "upper_bound":50000,
-            "duration_sec":200,
-            "type":1
-        }
-    ]
 }
-
-
-
 
 ]}

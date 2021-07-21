@@ -15,8 +15,6 @@
 
 #include "butil/logging.h"
 
-namespace butil {
-
 // Clears internal memory of an STL object.
 // STL clear()/reserve(0) does not always free internal memory allocated
 // This function uses swap/destructor to ensure the internal memory is freed.
@@ -197,6 +195,8 @@ template <typename Collection, typename Key>
 bool ContainsKey(const Collection& collection, const Key& key) {
   return collection.find(key) != collection.end();
 }
+
+namespace butil {
 
 // Returns true if the container is sorted.
 template <typename Container>

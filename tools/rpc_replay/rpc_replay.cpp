@@ -1,20 +1,18 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+// Copyright (c) 2014 Baidu, Inc.
+// 
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// 
+//     http://www.apache.org/licenses/LICENSE-2.0
+// 
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
+// Authors: Ge,Jun (gejun@baidu.com)
 
 #include <gflags/gflags.h>
 #include <butil/logging.h>
@@ -77,7 +75,7 @@ int ChannelGroup::Init() {
         max_protocol_size = std::max(max_protocol_size,
                                      (size_t)protocols[i].first);
     }
-    _chans.resize(max_protocol_size + 1);
+    _chans.resize(max_protocol_size);
     for (size_t i = 0; i < protocols.size(); ++i) {
         if (protocols[i].second.support_client() &&
             protocols[i].second.support_server()) {
@@ -149,21 +147,21 @@ static void* replay_thread(void* arg) {
                 continue;
             }
             brpc::Channel* chan =
-                chan_group->channel(sample->meta.protocol_type());
+                chan_group->channel(sample->protocol_type());
             if (chan == NULL) {
                 LOG(ERROR) << "No channel on protocol="
-                           << sample->meta.protocol_type();
+                           << sample->protocol_type();
                 continue;
             }
             
             brpc::Controller* cntl = new brpc::Controller;
             req.Clear();
             
-            cntl->reset_sampled_request(sample_guard.release());
-            if (sample->meta.attachment_size() > 0) {
+            cntl->reset_rpc_dump_meta(sample_guard.release());
+            if (sample->attachment_size() > 0) {
                 sample->request.cutn(
                     &req.serialized_data(),
-                    sample->request.size() - sample->meta.attachment_size());
+                    sample->request.size() - sample->attachment_size());
                 cntl->request_attachment() = sample->request.movable();
             } else {
                 req.serialized_data() = sample->request.movable();

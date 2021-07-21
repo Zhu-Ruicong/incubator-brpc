@@ -1,20 +1,18 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+// Copyright (c) 2015 Baidu, Inc.
+// 
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// 
+//     http://www.apache.org/licenses/LICENSE-2.0
+// 
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
+// Authors: Ge,Jun (gejun@baidu.com)
 
 #include <ostream>
 #include <iomanip>
@@ -110,7 +108,7 @@ static std::string BriefName(const std::string& cname) {
 
 void ConnectionsService::PrintConnections(
     std::ostream& os, const std::vector<SocketId>& conns,
-    bool use_html, const Server* server, bool is_channel_conn) const {
+    bool use_html, const Server* server, bool need_local) const {
     if (conns.empty()) {
         return;
     }
@@ -118,10 +116,8 @@ void ConnectionsService::PrintConnections(
         os << "<table class=\"gridtable sortable\" border=\"1\"><tr>"
             "<th>CreatedTime</th>"
             "<th>RemoteSide</th>";
-        if (is_channel_conn) {
-            os << "<th>Local</th>"
-                "<th>RecentErr</th>"
-                "<th>nbreak</th>";
+        if (need_local) {
+            os << "<th>Local</th>";
         }
         os << "<th>SSL</th>"
             "<th>Protocol</th>"
@@ -139,8 +135,8 @@ void ConnectionsService::PrintConnections(
             "</tr>\n";
     } else {
         os << "CreatedTime               |RemoteSide         |";
-        if (is_channel_conn) {
-            os << "Local|RecentErr|nbreak|";
+        if (need_local) {
+            os << "Local|";
         }
         os << "SSL|Protocol    |fd   |"
             "InBytes/s|In/s  |InBytes/m |In/m    |"
@@ -175,10 +171,8 @@ void ConnectionsService::PrintConnections(
         if (failed) {
             os << min_width("Broken", 26) << bar
                << min_width(NameOfPoint(ptr->remote_side()), 19) << bar;
-            if (is_channel_conn) {
-                os << min_width(ptr->local_side().port, 5) << bar
-                   << min_width(ptr->recent_error_count(), 10) << bar
-                   << min_width(ptr->isolated_times(), 7) << bar;
+            if (need_local) {
+                os << min_width(ptr->local_side().port, 5) << bar;
             }
             os << min_width("-", 3) << bar
                << min_width("-", 12) << bar
@@ -193,24 +187,15 @@ void ConnectionsService::PrintConnections(
                << min_width("-", 8) << bar
                << min_width("-", 11) << bar;
         } else {
-            {
-                SocketUniquePtr agent_sock;
-                if (ptr->PeekAgentSocket(&agent_sock) == 0) {
-                    ptr.swap(agent_sock);
-                }
-            }
             // Get name of the protocol. In principle we can dynamic_cast the
             // socket user to InputMessenger but I'm not sure if that's a bit
             // slow (because we have many connections here).
             int pref_index = ptr->preferred_index();
             SocketUniquePtr first_sub;
-            int pooled_count = -1;
-            if (ptr->HasSocketPool()) {
-                int numfree = 0;
-                int numinflight = 0;
-                if (ptr->GetPooledSocketStats(&numfree, &numinflight)) {
-                    pooled_count = numfree + numinflight;
-                }
+            int numfree = 0;
+            int numinflight = 0;
+            if (ptr->fd() < 0) {
+                ptr->GetPooledSocketStats(&numfree, &numinflight);
                 // Check preferred_index of any pooled sockets.
                 ptr->ListPooledSockets(&first_id, 1);
                 if (!first_id.empty()) {
@@ -236,10 +221,6 @@ void ConnectionsService::PrintConnections(
             if (strcmp(pref_prot, "unknown") == 0) {
                 // Show unknown protocol as - to be consistent with other columns.
                 pref_prot = "-";
-            } else if (strcmp(pref_prot, "h2") == 0) {
-                if (!ptr->is_ssl()) {
-                    pref_prot = "h2c";
-                }
             }
             ptr->GetStat(&stat);
             PrintRealDateTime(os, ptr->_reset_fd_real_us);
@@ -257,16 +238,12 @@ void ConnectionsService::PrintConnections(
             socklen_t len = sizeof(ti);
             if (0 == getsockopt(rttfd, SOL_TCP, TCP_INFO, &ti, &len)) {
                 got_rtt = true;
-                srtt = ti.tcpi_rtt;
-                rtt_var = ti.tcpi_rttvar;
             }
 #elif defined(OS_MACOSX)
             struct tcp_connection_info ti;
             socklen_t len = sizeof(ti);
             if (0 == getsockopt(rttfd, IPPROTO_TCP, TCP_CONNECTION_INFO, &ti, &len)) {
                 got_rtt = true;
-                srtt = ti.tcpi_srtt;
-                rtt_var = ti.tcpi_rttvar;
             }
 #endif
             char rtt_display[32];
@@ -277,22 +254,20 @@ void ConnectionsService::PrintConnections(
                 strcpy(rtt_display, "-");
             }
             os << bar << min_width(NameOfPoint(ptr->remote_side()), 19) << bar;
-            if (is_channel_conn) {
+            if (need_local) {
                 if (ptr->local_side().port > 0) {
                     os << min_width(ptr->local_side().port, 5) << bar;
                 } else {
                     os << min_width("-", 5) << bar;
                 }
-                os << min_width(ptr->recent_error_count(), 10) << bar
-                   << min_width(ptr->isolated_times(), 7) << bar;
             }
             os << SSLStateToYesNo(ptr->ssl_state(), use_html) << bar;
             char protname[32];
-            if (pooled_count < 0) {
+            if (!ptr->CreatedByConnect()) {
                 snprintf(protname, sizeof(protname), "%s", pref_prot);
             } else {
                 snprintf(protname, sizeof(protname), "%s*%d", pref_prot,
-                         pooled_count);
+                         numfree + numinflight);
             }
             os << min_width(protname, 12) << bar;
             if (ptr->fd() >= 0) {
@@ -379,7 +354,7 @@ void ConnectionsService::default_method(
         conns.insert(conns.end(), internal_conns.begin(), internal_conns.end());
     }
     os << "server_connection_count: " << num_conns << '\n';
-    PrintConnections(os, conns, use_html, server, false/*is_channel_conn*/);
+    PrintConnections(os, conns, use_html, server, false/*need_local*/);
     if (has_uncopied) {
         // Notice that we don't put the link of givemeall directly because
         // people seeing the link are very likely to click it which may be
@@ -392,7 +367,7 @@ void ConnectionsService::default_method(
     SocketMapList(&conns);
     os << (use_html ? "<br>\n" : "\n")
        << "channel_connection_count: " << GetChannelConnectionCount() << '\n';
-    PrintConnections(os, conns, use_html, server, true/*is_channel_conn*/);
+    PrintConnections(os, conns, use_html, server, true/*need_local*/);
 
     if (use_html) {
         os << "</body></html>\n";

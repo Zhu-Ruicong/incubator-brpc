@@ -138,8 +138,8 @@ TEST(RandUtilTest, RandGeneratorIsUniform) {
             // Don't quit too quickly for things to start converging, or we may have
             // a false positive.
             if (count > kMinAttempts &&
-                double(kExpectedAverage - kAllowedVariance) < cumulative_average &&
-                cumulative_average < double(kExpectedAverage + kAllowedVariance)) {
+                kExpectedAverage - kAllowedVariance < cumulative_average &&
+                cumulative_average < kExpectedAverage + kAllowedVariance) {
                 break;
             }
 

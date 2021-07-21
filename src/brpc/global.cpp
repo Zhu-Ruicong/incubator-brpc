@@ -1,28 +1,21 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
+// Copyright (c) 2014 Baidu, Inc.
 //
-//   http://www.apache.org/licenses/LICENSE-2.0
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
 //
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
+// Authors: Ge,Jun (gejun@baidu.com)
 
-#ifndef USE_MESALINK
 #include <openssl/ssl.h>
 #include <openssl/conf.h>
-#else
-#include <mesalink/openssl/ssl.h>
-#endif
-
 #include <gflags/gflags.h>
 #include <fcntl.h>                               // O_RDONLY
 #include <signal.h>
@@ -37,13 +30,11 @@
 #include "brpc/policy/domain_naming_service.h"
 #include "brpc/policy/remote_file_naming_service.h"
 #include "brpc/policy/consul_naming_service.h"
-#include "brpc/policy/discovery_naming_service.h"
 
 // Load Balancers
 #include "brpc/policy/round_robin_load_balancer.h"
 #include "brpc/policy/weighted_round_robin_load_balancer.h"
 #include "brpc/policy/randomized_load_balancer.h"
-#include "brpc/policy/weighted_randomized_load_balancer.h"
 #include "brpc/policy/locality_aware_load_balancer.h"
 #include "brpc/policy/consistent_hashing_load_balancer.h"
 #include "brpc/policy/hasher.h"
@@ -58,7 +49,6 @@
 #include "brpc/protocol.h"
 #include "brpc/policy/baidu_rpc_protocol.h"
 #include "brpc/policy/http_rpc_protocol.h"
-#include "brpc/policy/http2_rpc_protocol.h"
 #include "brpc/policy/hulu_pbrpc_protocol.h"
 #include "brpc/policy/nova_pbrpc_protocol.h"
 #include "brpc/policy/public_pbrpc_protocol.h"
@@ -116,11 +106,8 @@ const char* const DUMMY_SERVER_PORT_FILE = "dummy_server.port";
 
 struct GlobalExtensions {
     GlobalExtensions()
-        : dns(80)
-        , dns_with_ssl(443)
-        , ch_mh_lb(CONS_HASH_LB_MURMUR3)
-        , ch_md5_lb(CONS_HASH_LB_MD5)
-        , ch_ketama_lb(CONS_HASH_LB_KETAMA)
+        : ch_mh_lb(MurmurHash32)
+        , ch_md5_lb(MD5Hash32)
         , constant_cl(0) {
     }
     
@@ -130,19 +117,15 @@ struct GlobalExtensions {
     FileNamingService fns;
     ListNamingService lns;
     DomainNamingService dns;
-    DomainNamingService dns_with_ssl;
     RemoteFileNamingService rfns;
     ConsulNamingService cns;
-    DiscoveryNamingService dcns;
 
     RoundRobinLoadBalancer rr_lb;
     WeightedRoundRobinLoadBalancer wrr_lb;
     RandomizedLoadBalancer randomized_lb;
-    WeightedRandomizedLoadBalancer wr_lb;
     LocalityAwareLoadBalancer la_lb;
     ConsistentHashingLoadBalancer ch_mh_lb;
     ConsistentHashingLoadBalancer ch_md5_lb;
-    ConsistentHashingLoadBalancer ch_ketama_lb;
     DynPartLoadBalancer dynpart_lb;
 
     AutoConcurrencyLimiter auto_cl;
@@ -350,22 +333,18 @@ static void GlobalInitializeOrDieImpl() {
 #endif
     NamingServiceExtension()->RegisterOrDie("file", &g_ext->fns);
     NamingServiceExtension()->RegisterOrDie("list", &g_ext->lns);
-    NamingServiceExtension()->RegisterOrDie("http", &g_ext->dns);
-    NamingServiceExtension()->RegisterOrDie("https", &g_ext->dns_with_ssl);
-    NamingServiceExtension()->RegisterOrDie("redis", &g_ext->dns);
+  NamingServiceExtension()->RegisterOrDie("http", &g_ext->dns);
+  NamingServiceExtension()->RegisterOrDie("redis", &g_ext->dns);
     NamingServiceExtension()->RegisterOrDie("remotefile", &g_ext->rfns);
     NamingServiceExtension()->RegisterOrDie("consul", &g_ext->cns);
-    NamingServiceExtension()->RegisterOrDie("discovery", &g_ext->dcns);
 
     // Load Balancers
     LoadBalancerExtension()->RegisterOrDie("rr", &g_ext->rr_lb);
     LoadBalancerExtension()->RegisterOrDie("wrr", &g_ext->wrr_lb);
     LoadBalancerExtension()->RegisterOrDie("random", &g_ext->randomized_lb);
-    LoadBalancerExtension()->RegisterOrDie("wr", &g_ext->wr_lb);
     LoadBalancerExtension()->RegisterOrDie("la", &g_ext->la_lb);
     LoadBalancerExtension()->RegisterOrDie("c_murmurhash", &g_ext->ch_mh_lb);
     LoadBalancerExtension()->RegisterOrDie("c_md5", &g_ext->ch_md5_lb);
-    LoadBalancerExtension()->RegisterOrDie("c_ketama", &g_ext->ch_ketama_lb);
     LoadBalancerExtension()->RegisterOrDie("_dynpart", &g_ext->dynpart_lb);
 
     // Compress Handlers
@@ -413,17 +392,6 @@ static void GlobalInitializeOrDieImpl() {
                                CONNECTION_TYPE_POOLED_AND_SHORT,
                                "http" };
     if (RegisterProtocol(PROTOCOL_HTTP, http_protocol) != 0) {
-        exit(1);
-    }
-
-    Protocol http2_protocol = { ParseH2Message,
-                                SerializeHttpRequest, PackH2Request,
-                                ProcessHttpRequest, ProcessHttpResponse,
-                                VerifyHttpRequest, ParseHttpServerAddress,
-                                GetHttpMethodName,
-                                CONNECTION_TYPE_SINGLE,
-                                "h2" };
-    if (RegisterProtocol(PROTOCOL_H2, http2_protocol) != 0) {
         exit(1);
     }
 
@@ -494,7 +462,7 @@ static void GlobalInitializeOrDieImpl() {
     Protocol redis_protocol = { ParseRedisMessage,
                                 SerializeRedisRequest,
                                 PackRedisRequest,
-                                ProcessRedisRequest, ProcessRedisResponse,
+                                NULL, ProcessRedisResponse,
                                 NULL, NULL, GetRedisMethodName,
                                 CONNECTION_TYPE_ALL, "redis" };
     if (RegisterProtocol(PROTOCOL_REDIS, redis_protocol) != 0) {

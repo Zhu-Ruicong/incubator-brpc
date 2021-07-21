@@ -1,20 +1,18 @@
-// Licensed to the Apache Software Foundation (ASF) under one
-// or more contributor license agreements.  See the NOTICE file
-// distributed with this work for additional information
-// regarding copyright ownership.  The ASF licenses this file
-// to you under the Apache License, Version 2.0 (the
-// "License"); you may not use this file except in compliance
-// with the License.  You may obtain a copy of the License at
-//
-//   http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing,
-// software distributed under the License is distributed on an
-// "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-// KIND, either express or implied.  See the License for the
-// specific language governing permissions and limitations
-// under the License.
+// Copyright (c) 2012 Baidu, Inc.
+// 
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+// 
+//     http://www.apache.org/licenses/LICENSE-2.0
+// 
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
 
+// Author: Ge,Jun (gejun@baidu.com)
 // Date: 2012-10-08 23:53:50
 
 // Merged chromium log and streaming log.
@@ -212,7 +210,7 @@ typedef char PathChar;
 // Where to record logging output? A flat file and/or system debug log
 // via OutputDebugString.
 enum LoggingDestination {
-    LOG_TO_NONE             = 0,
+    LOG_NONE                = 0,
     LOG_TO_FILE             = 1 << 0,
     LOG_TO_SYSTEM_DEBUG_LOG = 1 << 1,
 
@@ -323,7 +321,7 @@ BUTIL_EXPORT LogSink* SetLogSink(LogSink* sink);
 class StringSink : public LogSink, public std::string {
 public:
     bool OnLogMessage(int severity, const char* file, int line,
-                 const butil::StringPiece& log_content) override;
+                 const butil::StringPiece& log_content);
 private:
     butil::Lock _lock;
 };
@@ -356,12 +354,19 @@ const LogSeverity BLOG_DFATAL = BLOG_FATAL;
 const LogSeverity BLOG_DFATAL = BLOG_ERROR;
 #endif
 
-// A few definitions of macros that don't generate much code. These are used
-// by LOG() and LOG_IF, etc. Since these are used all over our code, it's
-// better to have compact code for these operations.
+#if __cplusplus >= 201103L
+    #define __short_file_name(__name) (__builtin_strrchr(__name, '/') ? __builtin_strrchr(__name, '/') + 1 : __name)
+#endif
+
+#if __cplusplus >= 201103L && defined(BRPC_WITH_SHORT_FILE)
+    #define BAIDU_COMPACT_LOG_EX(severity, ClassName, ...)                     \
+        ::logging::ClassName(__short_file_name(__FILE__), __LINE__,            \
+        ::logging::BLOG_##severity, ##__VA_ARGS__)
+#else
 #define BAIDU_COMPACT_LOG_EX(severity, ClassName, ...)  \
     ::logging::ClassName(__FILE__, __LINE__,            \
     ::logging::BLOG_##severity, ##__VA_ARGS__)
+#endif
 
 #define BAIDU_COMPACK_LOG(severity)             \
     BAIDU_COMPACT_LOG_EX(severity, LogMessage)
@@ -382,7 +387,7 @@ const LogSeverity BLOG_0 = BLOG_ERROR;
 // LOG_IS_ON(DFATAL) always holds in debug mode. In particular, CHECK()s will
 // always fire if they fail.
 #define LOG_IS_ON(severity)                                     \
-    (::logging::BLOG_##severity >= ::logging::GetMinLogLevel())
+    (logging::BLOG_##severity >= ::logging::GetMinLogLevel())
 
 #if defined(__GNUC__)
 // We emit an anonymous static int* variable at every VLOG_IS_ON(n) site.
@@ -406,7 +411,12 @@ const LogSeverity BLOG_0 = BLOG_ERROR;
     (::logging::FLAGS_v >= (verbose_level))
 #endif
 
+#if __cplusplus >= 201103L && defined(BRPC_WITH_SHORT_FILE)
+#define VLOG_IS_ON(verbose_level) BAIDU_VLOG_IS_ON(verbose_level, __short_file_name(__FILE__))
+#else
 #define VLOG_IS_ON(verbose_level) BAIDU_VLOG_IS_ON(verbose_level, __FILE__)
+#endif
+
 
 DECLARE_int32(v);
 
@@ -426,7 +436,6 @@ public:
     };
 
     virtual void print(const Site& site) = 0;
-    virtual ~VLogSitePrinter() = default;
 };
 
 void print_vlog_sites(VLogSitePrinter*);
@@ -478,8 +487,13 @@ void print_vlog_sites(VLogSitePrinter*);
     BAIDU_LAZY_STREAM(LOG_AT_STREAM(severity, file, line), LOG_IS_ON(severity))
 
 // The VLOG macros log with negative verbosities.
+#if __cplusplus >= 201103L && defined(BRPC_WITH_SHORT_FILE)
+#define VLOG_STREAM(verbose_level)                                      \
+    ::logging::LogMessage(__short_file_name(__FILE__), __LINE__, -(verbose_level)).stream()
+#else
 #define VLOG_STREAM(verbose_level)                                      \
     ::logging::LogMessage(__FILE__, __LINE__, -(verbose_level)).stream()
+#endif
 
 #define VLOG(verbose_level)                                             \
     BAIDU_LAZY_STREAM(VLOG_STREAM(verbose_level), VLOG_IS_ON(verbose_level))
@@ -510,9 +524,15 @@ void print_vlog_sites(VLogSitePrinter*);
      ::logging::Win32ErrorLogMessage(__FILE__, __LINE__, -verbose_level, \
                                      ::logging::GetLastSystemErrorCode()).stream()
 #elif defined(OS_POSIX)
+#if __cplusplus >= 201103L && defined(BRPC_WITH_SHORT_FILE)
+#define VPLOG_STREAM(verbose_level)                                     \
+    ::logging::ErrnoLogMessage(__short_file_name(__FILE__), __LINE__, -verbose_level,      \
+                               ::logging::GetLastSystemErrorCode()).stream()
+#else
 #define VPLOG_STREAM(verbose_level)                                     \
     ::logging::ErrnoLogMessage(__FILE__, __LINE__, -verbose_level,      \
                                ::logging::GetLastSystemErrorCode()).stream()
+#endif
 #endif
 
 #define VPLOG(verbose_level)                                            \
@@ -578,11 +598,19 @@ void print_vlog_sites(VLogSitePrinter*);
 //
 // TODO(akalin): Rewrite this so that constructs like if (...)
 // CHECK_EQ(...) else { ... } work properly.
+#if __cplusplus >= 201103L && defined(BRPC_WITH_SHORT_FILE)
+#define BAIDU_CHECK_OP(name, op, val1, val2)                                  \
+    if (std::string* _result =                                          \
+        ::logging::Check##name##Impl((val1), (val2),                    \
+                                     #val1 " " #op " " #val2))          \
+        ::logging::LogMessage(__short_file_name(__FILE__), __LINE__, _result).stream().SetCheck()
+#else
 #define BAIDU_CHECK_OP(name, op, val1, val2)                                  \
     if (std::string* _result =                                          \
         ::logging::Check##name##Impl((val1), (val2),                    \
                                      #val1 " " #op " " #val2))          \
         ::logging::LogMessage(__FILE__, __LINE__, _result).stream().SetCheck()
+#endif
 
 #endif
 
@@ -804,6 +832,16 @@ const LogSeverity BLOG_DCHECK = BLOG_INFO;
 
 // Helper macro for binary operators.
 // Don't use this macro directly in your code, use DCHECK_EQ et al below.
+#if __cplusplus >= 201103L && defined(BRPC_WITH_SHORT_FILE)
+#define BAIDU_DCHECK_OP(name, op, val1, val2)                           \
+    if (DCHECK_IS_ON())                                                   \
+        if (std::string* _result =                                      \
+            ::logging::Check##name##Impl((val1), (val2),                \
+                                         #val1 " " #op " " #val2))      \
+            ::logging::LogMessage(                                      \
+                __short_file_name(__FILE__), __LINE__, ::logging::BLOG_DCHECK,             \
+                _result).stream()
+#else
 #define BAIDU_DCHECK_OP(name, op, val1, val2)                           \
     if (DCHECK_IS_ON())                                                   \
         if (std::string* _result =                                      \
@@ -812,6 +850,7 @@ const LogSeverity BLOG_DCHECK = BLOG_INFO;
             ::logging::LogMessage(                                      \
                 __FILE__, __LINE__, ::logging::BLOG_DCHECK,             \
                 _result).stream()
+#endif
 
 // Equality/Inequality checks - compare two values, and log a
 // BLOG_DCHECK message including the two values when the result is not
@@ -859,8 +898,8 @@ public:
     explicit CharArrayStreamBuf() : _data(NULL), _size(0) {}
     ~CharArrayStreamBuf();
 
-    int overflow(int ch) override;
-    int sync() override;
+    virtual int overflow(int ch);
+    virtual int sync();
     void reset();
 
 private:
@@ -986,7 +1025,11 @@ private:
 // A non-macro interface to the log facility; (useful
 // when the logging level is not a compile-time constant).
 inline void LogAtLevel(int const log_level, const butil::StringPiece &msg) {
+#if __cplusplus >= 201103L && defined(BRPC_WITH_SHORT_FILE)
+    LogMessage(__short_file_name(__FILE__), __LINE__, log_level).stream() << msg;
+#else
     LogMessage(__FILE__, __LINE__, log_level).stream() << msg;
+#endif
 }
 
 // This class is used to explicitly ignore values in the conditional
