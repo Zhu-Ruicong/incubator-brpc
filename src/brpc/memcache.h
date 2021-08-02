@@ -89,21 +89,21 @@ public:
     const butil::IOBuf& raw_buffer() const { return _buf; }
 
     // Protobuf methods.
-    MemcacheRequest* New() const;
-    void CopyFrom(const ::google::protobuf::Message& from);
-    void MergeFrom(const ::google::protobuf::Message& from);
+    MemcacheRequest* New() const override;
+    void CopyFrom(const ::google::protobuf::Message& from) override;
+    void MergeFrom(const ::google::protobuf::Message& from) override;
     void CopyFrom(const MemcacheRequest& from);
     void MergeFrom(const MemcacheRequest& from);
-    void Clear();
-    bool IsInitialized() const;
+    void Clear() override;
+    bool IsInitialized() const override;
   
     int ByteSize() const;
     bool MergePartialFromCodedStream(
-        ::google::protobuf::io::CodedInputStream* input);
+        ::google::protobuf::io::CodedInputStream* input) override;
     void SerializeWithCachedSizes(
-        ::google::protobuf::io::CodedOutputStream* output) const;
-    ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const;
-    int GetCachedSize() const { return _cached_size_; }
+        ::google::protobuf::io::CodedOutputStream* output) const override;
+    ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const override;
+    int GetCachedSize() const override { return _cached_size_; }
     
     static const ::google::protobuf::Descriptor* descriptor();
 
@@ -121,7 +121,7 @@ private:
 
     void SharedCtor();
     void SharedDtor();
-    void SetCachedSize(int size) const;
+    void SetCachedSize(int size) const override;
 
     int _pipelined_count;
     butil::IOBuf _buf;

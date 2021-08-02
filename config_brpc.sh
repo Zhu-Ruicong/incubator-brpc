@@ -38,7 +38,7 @@ else
     LDD=ldd
 fi
 
-TEMP=`getopt -o v: --long headers:,libs:,cc:,cxx:,with-glog,with-thrift,with-mesalink,nodebugsymbols -n 'config_brpc' -- "$@"`
+TEMP=`getopt -o v: --long headers:,libs:,cc:,cxx:,with-glog,with-thrift,with-mesalink,with-shortlog,nodebugsymbols -n 'config_brpc' -- "$@"`
 WITH_GLOG=0
 WITH_THRIFT=0
 WITH_MESALINK=0
@@ -65,6 +65,7 @@ while true; do
         --with-glog ) WITH_GLOG=1; shift 1 ;;
         --with-thrift) WITH_THRIFT=1; shift 1 ;;
         --with-mesalink) WITH_MESALINK=1; shift 1 ;;
+        --with-shortlog ) WITH_SHORTLOG=1; shift 1 ;;
         --nodebugsymbols ) DEBUGSYMBOLS=; shift 1 ;;
         -- ) shift; break ;;
         * ) break ;;
@@ -313,7 +314,7 @@ append_to_output "CXX=$CXX"
 append_to_output "GCC_VERSION=$GCC_VERSION"
 append_to_output "STATIC_LINKINGS=$STATIC_LINKINGS"
 append_to_output "DYNAMIC_LINKINGS=$DYNAMIC_LINKINGS"
-CPPFLAGS="-DBRPC_WITH_GLOG=$WITH_GLOG -DGFLAGS_NS=$GFLAGS_NS"
+CPPFLAGS="-DBRPC_WITH_GLOG=$WITH_GLOG -DGFLAGS_NS=$GFLAGS_NS -DBRPC_WITH_SHORT_FILE=$WITH_SHORTLOG"
 
 if [ ! -z "$DEBUGSYMBOLS" ]; then
     CPPFLAGS="${CPPFLAGS} $DEBUGSYMBOLS"
@@ -382,6 +383,29 @@ else
             append_to_output "    STATIC_LINKINGS+=$TCMALLOC_LIB/libtcmalloc.a"
         else
             append_to_output "    STATIC_LINKINGS+=-ltcmalloc_and_profiler"
+        fi
+    fi
+fi
+append_to_output "endif"
+
+append_to_output "ifeq (\$(NEED_JEMALLOC), 1)"
+# required by cpu/heap profiler
+JEMALLOC_LIB=$(find_dir_of_lib jemalloc)
+PROFILER_LIB=$(find_dir_of_lib profiler)
+if [ -z "$JEMALLOC_LIB" ]; then
+    append_to_output "    \$(error \"Fail to find jemalloc\")"
+elif [ -z "$PROFILER_LIB" ]; then
+    append_to_output "    \$(error \"Fail to find profiler\")"
+else
+    append_to_output_libs "$JEMALLOC_LIB" "    "
+    if [ -f $JEMALLOC_LIB/libjemalloc.$SO ]; then
+        append_to_output "    DYNAMIC_LINKINGS+=-ljemalloc -lprofiler"
+    else
+        if [ "$SYSTEM" = "Darwin" ]; then
+            append_to_output "    STATIC_LINKINGS+=$JEMALLOC_LIB/libjemalloc.a"
+            append_to_output "    STATIC_LINKINGS+=$PROFILER_LIB/libprofiler.a"
+        else
+            append_to_output "    STATIC_LINKINGS+=-ljemalloc -lprofiler"
         fi
     fi
 fi

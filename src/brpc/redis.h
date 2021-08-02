@@ -106,21 +106,21 @@ public:
     bool SerializeTo(butil::IOBuf* buf) const;
 
     // Protobuf methods.
-    RedisRequest* New() const;
-    void CopyFrom(const ::google::protobuf::Message& from);
-    void MergeFrom(const ::google::protobuf::Message& from);
+    RedisRequest* New() const override;
+    void CopyFrom(const ::google::protobuf::Message& from) override;
+    void MergeFrom(const ::google::protobuf::Message& from) override;
     void CopyFrom(const RedisRequest& from);
     void MergeFrom(const RedisRequest& from);
-    void Clear();
-    bool IsInitialized() const;
+    void Clear() override;
+    bool IsInitialized() const override;
   
     int ByteSize() const;
     bool MergePartialFromCodedStream(
-        ::google::protobuf::io::CodedInputStream* input);
+        ::google::protobuf::io::CodedInputStream* input) override;
     void SerializeWithCachedSizes(
-        ::google::protobuf::io::CodedOutputStream* output) const;
-    ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const;
-    int GetCachedSize() const { return _cached_size_; }
+        ::google::protobuf::io::CodedOutputStream* output) const override;
+    ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const override;
+    int GetCachedSize() const override { return _cached_size_; }
 
     static const ::google::protobuf::Descriptor* descriptor();
     
@@ -132,7 +132,7 @@ protected:
 private:
     void SharedCtor();
     void SharedDtor();
-    void SetCachedSize(int size) const;
+    void SetCachedSize(int size) const override;
     bool AddCommandWithArgs(const char* fmt, ...);
 
     int _ncommand;    // # of valid commands
@@ -176,21 +176,21 @@ public:
     
     // implements Message ----------------------------------------------
   
-    RedisResponse* New() const;
-    void CopyFrom(const ::google::protobuf::Message& from);
-    void MergeFrom(const ::google::protobuf::Message& from);
+    RedisResponse* New() const override;
+    void CopyFrom(const ::google::protobuf::Message& from) override;
+    void MergeFrom(const ::google::protobuf::Message& from) override;
     void CopyFrom(const RedisResponse& from);
     void MergeFrom(const RedisResponse& from);
-    void Clear();
-    bool IsInitialized() const;
+    void Clear() override;
+    bool IsInitialized() const override;
   
     int ByteSize() const;
     bool MergePartialFromCodedStream(
-        ::google::protobuf::io::CodedInputStream* input);
+        ::google::protobuf::io::CodedInputStream* input) override;
     void SerializeWithCachedSizes(
-        ::google::protobuf::io::CodedOutputStream* output) const;
-    ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const;
-    int GetCachedSize() const { return _cached_size_; }
+        ::google::protobuf::io::CodedOutputStream* output) const override;
+    ::google::protobuf::uint8* SerializeWithCachedSizesToArray(::google::protobuf::uint8* output) const override;
+    int GetCachedSize() const override { return _cached_size_; }
 
     static const ::google::protobuf::Descriptor* descriptor();
 
@@ -200,7 +200,7 @@ protected:
 private:
     void SharedCtor();
     void SharedDtor();
-    void SetCachedSize(int size) const;
+    void SetCachedSize(int size) const override;
 
     RedisReply _first_reply;
     RedisReply* _other_replies;
@@ -240,7 +240,7 @@ enum RedisCommandHandlerResult {
 // The Command handler for a redis request. User should impletement Run().
 class RedisCommandHandler {
 public:
-    ~RedisCommandHandler() {}
+    virtual ~RedisCommandHandler() {}
 
     // Once Server receives commands, it will first find the corresponding handlers and
     // call them sequentially(one by one) according to the order that requests arrive,

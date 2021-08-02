@@ -53,22 +53,22 @@ public:
 
     // implements Message ----------------------------------------------
 
-    EspMessage* New() const;
-    void CopyFrom(const ::google::protobuf::Message& from);
-    void MergeFrom(const ::google::protobuf::Message& from);
+    EspMessage* New() const override;
+    void CopyFrom(const ::google::protobuf::Message& from) override;
+    void MergeFrom(const ::google::protobuf::Message& from) override;
     void CopyFrom(const EspMessage& from);
     void MergeFrom(const EspMessage& from);
-    void Clear();
-    bool IsInitialized() const;
+    void Clear() override;
+    bool IsInitialized() const override;
 
     int ByteSize() const;
     bool MergePartialFromCodedStream(
-            ::google::protobuf::io::CodedInputStream* input);
+            ::google::protobuf::io::CodedInputStream* input) override;
     void SerializeWithCachedSizes(
-            ::google::protobuf::io::CodedOutputStream* output) const;
+            ::google::protobuf::io::CodedOutputStream* output) const override;
     ::google::protobuf::uint8* SerializeWithCachedSizesToArray(
-            ::google::protobuf::uint8* output) const;
-    int GetCachedSize() const { return ByteSize(); }
+            ::google::protobuf::uint8* output) const override;
+    int GetCachedSize() const override { return ByteSize(); }
 
 protected:
     ::google::protobuf::Metadata GetMetadata() const override;
