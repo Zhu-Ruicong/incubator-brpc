@@ -20,6 +20,7 @@
 #include <google/protobuf/message.h>            // Message
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 #include <google/protobuf/io/coded_stream.h>
+#include <google/protobuf/arena.h>
 #include "butil/logging.h"                       // LOG()
 #include "butil/time.h"
 #include "butil/iobuf.h"                         // butil::IOBuf
@@ -50,6 +51,14 @@ namespace policy {
 DEFINE_bool(baidu_protocol_use_fullname, true,
             "If this flag is true, baidu_std puts service.full_name in requests"
             ", otherwise puts service.name (required by jprotobuf).");
+DEFINE_bool(brpc_use_protobuf_arena_in_processrpcrequest, false,
+            "whether use arena in baidu_rpc_protocol.cpp::ProcessRpcRequest function");
+
+DEFINE_int32(brpc_protobuf_arena_start_block_size, 64 * 1024,
+            "start_block_size for arena in baidu_rpc_protocol.cpp::ProcessRpcRequest function");
+
+DEFINE_int32(brpc_protobuf_arena_max_block_size, 1024 * 1024,
+            "max_block_size for arena in baidu_rpc_protocol.cpp::ProcessRpcRequest function");
 
 // Notes:
 // 1. 12-byte header [PRPC][body_size][meta_size]
@@ -147,10 +156,23 @@ void SendRpcResponse(int64_t correlation_id,
     }
     Socket* sock = accessor.get_sending_socket();
     std::unique_ptr<Controller, LogErrorTextAndDelete> recycle_cntl(cntl);
+    std::unique_ptr<const google::protobuf::Arena> recycle_arena;
+    std::unique_ptr<const google::protobuf::Message> recycle_req;
+    std::unique_ptr<const google::protobuf::Message> recycle_res;
     ConcurrencyRemover concurrency_remover(method_status, cntl, received_us);
-    std::unique_ptr<const google::protobuf::Message> recycle_req(req);
-    std::unique_ptr<const google::protobuf::Message> recycle_res(res);
-    
+    const google::protobuf::Arena* arena = NULL;
+    if (res) {
+        arena = res->GetArena();
+        if (NULL == arena && req) {
+            arena = req->GetArena();
+        }
+    }
+    if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest && arena) {
+        recycle_arena.reset(arena);
+    } else {
+        recycle_req.reset(req);
+        recycle_res.reset(res);
+    }
     StreamId response_stream_id = accessor.response_stream();
 
     if (cntl->IsCloseConnection()) {
@@ -333,6 +355,17 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
         LOG(WARNING) << "Fail to new Controller";
         return;
     }
+    std::unique_ptr<google::protobuf::Arena> arena;
+    if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest) {
+        google::protobuf::ArenaOptions options;
+        options.start_block_size = FLAGS_brpc_protobuf_arena_start_block_size;
+        options.max_block_size = FLAGS_brpc_protobuf_arena_max_block_size;
+        arena.reset(new google::protobuf::Arena(options));
+        if (NULL == arena.get()) {
+            LOG(WARNING) << "brpc_use_protobuf_arena_in_processrpcrequest is true but fail to new arena";
+            return;
+        }
+    }
     std::unique_ptr<google::protobuf::Message> req;
     std::unique_ptr<google::protobuf::Message> res;
 
@@ -466,15 +499,23 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
         }
 
         CompressType req_cmp_type = (CompressType)meta.compress_type();
-        req.reset(svc->GetRequestPrototype(method).New());
+
+        if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest) {
+            req.reset(svc->GetRequestPrototype(method).New(arena.get()));
+        } else {
+            req.reset(svc->GetRequestPrototype(method).New());
+        }
         if (!ParseFromCompressedData(*req_buf_ptr, req.get(), req_cmp_type)) {
             cntl->SetFailed(EREQUEST, "Fail to parse request message, "
                             "CompressType=%s, request_size=%d", 
                             CompressTypeToCStr(req_cmp_type), reqsize);
             break;
         }
-        
-        res.reset(svc->GetResponsePrototype(method).New());
+        if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest) {
+            res.reset(svc->GetResponsePrototype(method).New(arena.get()));
+        } else {
+            res.reset(svc->GetResponsePrototype(method).New());
+        }
         // `socket' will be held until response has been sent
         google::protobuf::Closure* done = ::brpc::NewCallback<
             int64_t, Controller*, const google::protobuf::Message*,
