@@ -54,6 +54,8 @@ message RpczSpan {
     optional bytes info = 20;
     repeated RpczSpan client_spans = 21;
     optional bytes full_method_name = 22;
+    optional int64 serialized_real_us = 23;
+    optional int64 header_serialized_real_us = 24;
 }
 
 message BriefSpan {
