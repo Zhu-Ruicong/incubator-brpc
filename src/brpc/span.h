@@ -111,6 +111,11 @@ public:
     void set_sent_us(int64_t tm)
     { _sent_real_us = tm + _base_real_us; }
 
+    void set_serialized_us(int64_t tm)
+    { _serialized_real_us = tm + _base_real_us; }
+    void set_header_serialized_us(int64_t tm)
+    { _header_serialized_real_us = tm + _base_real_us; }
+
     Span* local_parent() const { return _local_parent; }
     static Span* tls_parent() {
         return (Span*)bthread::tls_bls.rpcz_parent_span;
@@ -133,6 +138,10 @@ public:
     int64_t start_callback_real_us() const { return _start_callback_real_us; }
     int64_t start_send_real_us() const { return _start_send_real_us; }
     int64_t sent_real_us() const { return _sent_real_us; }
+
+    int64_t serialized_real_us() const {return _serialized_real_us; }
+    int64_t header_serialized_real_us() const {return _header_serialized_real_us; }
+
     bool async() const { return _async; }
     const std::string& full_method_name() const { return _full_method_name; }
     const std::string& info() const { return _info; }
@@ -170,6 +179,10 @@ private:
     int64_t _start_callback_real_us;
     int64_t _start_send_real_us;
     int64_t _sent_real_us;
+
+    int64_t _serialized_real_us;
+    int64_t _header_serialized_real_us;
+
     std::string _full_method_name;
     // Format: 
     //   time1_us \s annotation1 <SEP>

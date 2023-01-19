@@ -177,6 +177,10 @@ void SendRpcResponse(int64_t correlation_id,
         }
     }
 
+    if (span) {
+        span->set_serialized_us(butil::cpuwide_time_us());
+    }
+
     // Don't use res->ByteSize() since it may be compressed
     size_t res_size = 0;
     size_t attached_size = 0;
@@ -227,6 +231,7 @@ void SendRpcResponse(int64_t correlation_id,
 
     if (span) {
         span->set_response_size(res_buf.size());
+        span->set_header_serialized_us(butil::cpuwide_time_us());
     }
     if (stream_ptr) {
         CHECK(accessor.remote_stream_settings() != NULL);

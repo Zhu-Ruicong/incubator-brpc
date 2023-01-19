@@ -120,6 +120,8 @@ Span* Span::CreateClientSpan(const std::string& full_method_name,
     span->_start_callback_real_us = 0;
     span->_start_send_real_us = 0;
     span->_sent_real_us = 0;
+    span->_header_serialized_real_us = 0;
+    span->_serialized_real_us = 0;
     span->_next_client = NULL;
     span->_tls_next = NULL;
     span->_full_method_name = full_method_name;
@@ -172,6 +174,8 @@ Span* Span::CreateServerSpan(
     span->_start_callback_real_us = 0;
     span->_start_send_real_us = 0;
     span->_sent_real_us = 0;
+    span->_header_serialized_real_us = 0;
+    span->_serialized_real_us = 0;
     span->_next_client = NULL;
     span->_tls_next = NULL;
     span->_full_method_name = (!full_method_name.empty() ?
@@ -258,6 +262,8 @@ int64_t Span::GetEndRealTimeUs() const {
     result = std::max(result, _start_callback_real_us);
     result = std::max(result, _start_send_real_us);
     result = std::max(result, _sent_real_us);
+    result = std::max(result, _header_serialized_real_us);
+    result = std::max(result, _serialized_real_us);
     return result;
 }
 
@@ -446,6 +452,8 @@ static void Span2Proto(const Span* span, RpczSpan* out) {
     out->set_full_method_name(span->full_method_name());
     out->set_info(span->info());
     out->set_error_code(span->error_code());
+    out->set_serialized_real_us(span->serialized_real_us());
+    out->set_header_serialized_real_us(span->header_serialized_real_us());
 }
 
 inline void ToBigEndian(uint64_t n, uint32_t* buf) {

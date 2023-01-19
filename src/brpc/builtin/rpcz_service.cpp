@@ -364,6 +364,18 @@ static void PrintServerSpan(std::ostream& os, const RpczSpan& span,
             os << " Responding" << std::endl;
         }
     }
+
+    if (PrintAnnotationsAndRealTimeSpan(
+            os, span.serialized_real_us(),
+            &last_time, extr, ARRAY_SIZE(extr))) {
+        os << " Serialized Content " << span.full_method_name() << std::endl;
+    }
+
+    if (PrintAnnotationsAndRealTimeSpan(
+            os, span.header_serialized_real_us(),
+            &last_time, extr, ARRAY_SIZE(extr))) {
+        os << " Header Serialized Content " << span.full_method_name() << std::endl;
+    }
     
     if (PrintAnnotationsAndRealTimeSpan(
             os, span.sent_real_us(),
