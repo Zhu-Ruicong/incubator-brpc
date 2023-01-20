@@ -351,8 +351,8 @@ static void PrintServerSpan(std::ostream& os, const RpczSpan& span,
 
     const int nclient = span.client_spans_size();
     for (int i = 0; i < nclient; ++i) {
-        PrintClientSpan(os, span.client_spans(i), &last_time,
-                        &server_extr, use_html);
+//        PrintClientSpan(os, span.client_spans(i), &last_time,
+//                        &server_extr, use_html);
     }
 
     if (PrintAnnotationsAndRealTimeSpan(
@@ -564,7 +564,7 @@ void RpczService::default_method(::google::protobuf::RpcController* cntl_base,
             if (span.type() == SPAN_TYPE_SERVER) {
                 PrintServerSpan(os, span, use_html);
             } else {
-                PrintClientSpan(os, span, use_html);
+//                PrintClientSpan(os, span, use_html);
             }
             os << std::endl;
         }
