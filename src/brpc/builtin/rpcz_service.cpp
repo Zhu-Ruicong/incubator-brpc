@@ -588,7 +588,7 @@ void RpczService::default_method(::google::protobuf::RpcController* cntl_base,
                 return;
             }
         }
-        int max_count = 100;
+        int max_count = 1000;
         const std::string* max_scan_str =
             cntl->http_request().uri().GetQuery(MAX_SCAN_STR);
         if (max_scan_str) {
@@ -647,6 +647,9 @@ void RpczService::default_method(::google::protobuf::RpcController* cntl_base,
         }
         for (size_t i = 0; i < spans.size(); ++i) {
             BriefSpan& span = spans[i];
+            if (span.type() != SPAN_TYPE_SERVER) {
+                continue;
+            }
             int64_t last_time = span.start_real_us();
             PrintRealDateTime(os, last_time);
             PrintElapse(os, span.latency_us() + last_time, &last_time);
