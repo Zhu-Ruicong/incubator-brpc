@@ -268,6 +268,19 @@ void SendRpcResponse(int64_t correlation_id,
         // TODO: this is not sent
         span->set_sent_us(butil::cpuwide_time_us());
     }
+
+    recycle_req.reset();
+    if (span) {
+        span->set_req_released_us(butil::cpuwide_time_us());
+    }
+    recycle_res.reset();
+    if (span) {
+        span->set_resp_released_us(butil::cpuwide_time_us());
+    }
+    recycle_cntl.reset();
+    if (span) {
+        span->set_cntl_released_us(butil::cpuwide_time_us());
+    }
 }
 
 struct CallMethodInBackupThreadArgs {

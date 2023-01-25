@@ -56,6 +56,9 @@ message RpczSpan {
     optional bytes full_method_name = 22;
     optional int64 serialized_real_us = 23;
     optional int64 header_serialized_real_us = 24;
+    optional int64 req_released_real_us = 25;
+    optional int64 resp_released_real_us = 26;
+    optional int64 cntl_released_real_us = 27;
 
 }
 
