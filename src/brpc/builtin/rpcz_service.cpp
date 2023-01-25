@@ -383,6 +383,22 @@ static void PrintServerSpan(std::ostream& os, const RpczSpan& span,
         os << " Responded(" << span.response_size() << ')' << std::endl;
     }
 
+    if (PrintAnnotationsAndRealTimeSpan(
+            os, span.req_released_real_us(),
+            &last_time, extr, ARRAY_SIZE(extr))) {
+        os << " Req Released " << span.full_method_name() << std::endl;
+    }
+    if (PrintAnnotationsAndRealTimeSpan(
+            os, span.resp_released_real_us(),
+            &last_time, extr, ARRAY_SIZE(extr))) {
+        os << " Resp Released " << span.full_method_name() << std::endl;
+    }
+    if (PrintAnnotationsAndRealTimeSpan(
+            os, span.cntl_released_real_us(),
+            &last_time, extr, ARRAY_SIZE(extr))) {
+        os << " Control Released " << span.full_method_name() << std::endl;
+    }
+
     PrintAnnotations(os, std::numeric_limits<int64_t>::max(),
                      &last_time, extr, ARRAY_SIZE(extr));
 }

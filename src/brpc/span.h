@@ -116,6 +116,13 @@ public:
     void set_header_serialized_us(int64_t tm)
     { _header_serialized_real_us = tm + _base_real_us; }
 
+    void set_req_released_us(int64_t tm)
+    { _req_released_real_us = tm + _base_real_us; }
+    void set_resp_released_us(int64_t tm)
+    { _resp_released_real_us = tm + _base_real_us; }
+    void set_cntl_released_us(int64_t tm)
+    { _cntl_released_real_us = tm + _base_real_us; }
+
     Span* local_parent() const { return _local_parent; }
     static Span* tls_parent() {
         return (Span*)bthread::tls_bls.rpcz_parent_span;
@@ -141,6 +148,9 @@ public:
 
     int64_t serialized_real_us() const {return _serialized_real_us; }
     int64_t header_serialized_real_us() const {return _header_serialized_real_us; }
+    int64_t req_released_real_us() const {return _req_released_real_us; }
+    int64_t resp_released_real_us() const {return _resp_released_real_us; }
+    int64_t cntl_released_real_us() const {return _cntl_released_real_us; }
 
     bool async() const { return _async; }
     const std::string& full_method_name() const { return _full_method_name; }
@@ -182,6 +192,10 @@ private:
 
     int64_t _serialized_real_us;
     int64_t _header_serialized_real_us;
+
+    int64_t _req_released_real_us;
+    int64_t _resp_released_real_us;
+    int64_t _cntl_released_real_us;
 
     std::string _full_method_name;
     // Format: 
