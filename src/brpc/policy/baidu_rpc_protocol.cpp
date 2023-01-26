@@ -291,17 +291,26 @@ void SendRpcResponse(int64_t correlation_id,
         span->set_sent_us(butil::cpuwide_time_us());
     }
 
-    recycle_req.reset();
-    if (span) {
-        span->set_req_released_us(butil::cpuwide_time_us());
-    }
-    recycle_res.reset();
-    if (span) {
-        span->set_resp_released_us(butil::cpuwide_time_us());
-    }
-    recycle_cntl.reset();
-    if (span) {
-        span->set_cntl_released_us(butil::cpuwide_time_us());
+    if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest && arena) {
+        recycle_arena.reset();
+        if (span) {
+            span->set_req_released_us(butil::cpuwide_time_us());
+            span->set_resp_released_us(butil::cpuwide_time_us());
+            span->set_cntl_released_us(butil::cpuwide_time_us());
+        }
+    } else {
+        recycle_req.reset();
+        if (span) {
+            span->set_req_released_us(butil::cpuwide_time_us());
+        }
+        recycle_res.reset();
+        if (span) {
+            span->set_resp_released_us(butil::cpuwide_time_us());
+        }
+        recycle_cntl.reset();
+        if (span) {
+            span->set_cntl_released_us(butil::cpuwide_time_us());
+        }
     }
 }
 
