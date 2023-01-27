@@ -561,14 +561,17 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
             span->AsParent();
         }
         if (!FLAGS_usercode_in_pthread) {
+            arena.release();
             return svc->CallMethod(method, cntl.release(), 
                                    req.release(), res.release(), done);
         }
         if (BeginRunningUserCode()) {
+            arena.release();
             svc->CallMethod(method, cntl.release(), 
                             req.release(), res.release(), done);
             return EndRunningUserCodeInPlace();
         } else {
+            arena.release();
             return EndRunningCallMethodInPool(
                 svc, method, cntl.release(),
                 req.release(), res.release(), done);
@@ -577,6 +580,7 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
     
     // `cntl', `req' and `res' will be deleted inside `SendRpcResponse'
     // `socket' will be held until response has been sent
+    arena.release();
     SendRpcResponse(meta.correlation_id(), cntl.release(), 
                     req.release(), res.release(), server,
                     method_status, msg->received_us());
