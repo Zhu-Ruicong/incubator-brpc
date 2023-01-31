@@ -529,7 +529,7 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
         CompressType req_cmp_type = (CompressType)meta.compress_type();
 
         if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest) {
-            req.reset(svc->GetRequestPrototype(method).New(arena));
+            req.reset(svc->GetRequestPrototype(method).New(arena.get()));
         } else {
             req.reset(svc->GetRequestPrototype(method).New());
         }
@@ -540,7 +540,7 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
             break;
         }
         if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest) {
-            res.reset(svc->GetResponsePrototype(method).New(arena));
+            res.reset(svc->GetResponsePrototype(method).New(arena.get()));
         } else {
             res.reset(svc->GetResponsePrototype(method).New());
         }
@@ -581,8 +581,8 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
     
     // `cntl', `req' and `res' will be deleted inside `SendRpcResponse'
     // `socket' will be held until response has been sent
-//    arena.release();
-    SendRpcResponse(meta.correlation_id(), cntl.release(),
+    arena.release();
+    SendRpcResponse(meta.correlation_id(), cntl.release(), 
                     req.release(), res.release(), server,
                     method_status, msg->received_us());
 }
