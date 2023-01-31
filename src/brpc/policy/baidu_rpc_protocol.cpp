@@ -20,7 +20,7 @@
 #include <google/protobuf/message.h>            // Message
 #include <google/protobuf/io/zero_copy_stream_impl_lite.h>
 #include <google/protobuf/io/coded_stream.h>
-#include <brpc/shared_arena.h>
+#include <google/protobuf/arena.h>
 #include "butil/logging.h"                       // LOG()
 #include "butil/time.h"
 #include "butil/iobuf.h"                         // butil::IOBuf
@@ -156,19 +156,19 @@ void SendRpcResponse(int64_t correlation_id,
     }
     Socket* sock = accessor.get_sending_socket();
     std::unique_ptr<Controller, LogErrorTextAndDelete> recycle_cntl(cntl);
-    std::shared_ptr<SharedArena> recycle_arena;
+    std::unique_ptr<const google::protobuf::Arena> recycle_arena;
     std::unique_ptr<const google::protobuf::Message> recycle_req;
     std::unique_ptr<const google::protobuf::Message> recycle_res;
     ConcurrencyRemover concurrency_remover(method_status, cntl, received_us);
-    SharedArena* arena = NULL;
+    const google::protobuf::Arena* arena = NULL;
     if (res) {
-        arena = static_cast<SharedArena*>(res->GetArena());
+        arena = res->GetArena();
         if (NULL == arena && req) {
-            arena = static_cast<SharedArena*>(req->GetArena());
+            arena = req->GetArena();
         }
     }
     if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest && arena) {
-        recycle_arena = SharedArena::share(arena);
+        recycle_arena.reset(arena);
     } else {
         recycle_req.reset(req);
         recycle_res.reset(res);
@@ -382,14 +382,13 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
         LOG(WARNING) << "Fail to new Controller";
         return;
     }
-    SharedArena* arena;
+    std::unique_ptr<google::protobuf::Arena> arena;
     if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest) {
         google::protobuf::ArenaOptions options;
         options.start_block_size = FLAGS_brpc_protobuf_arena_start_block_size;
         options.max_block_size = FLAGS_brpc_protobuf_arena_max_block_size;
-        // TODO: Need to handle fail case?
-        arena = new SharedArena(options);
-        if (NULL == arena) {
+        arena.reset(new google::protobuf::Arena(options));
+        if (NULL == arena.get()) {
             LOG(WARNING) << "brpc_use_protobuf_arena_in_processrpcrequest is true but fail to new arena";
             return;
         }
@@ -562,17 +561,17 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
             span->AsParent();
         }
         if (!FLAGS_usercode_in_pthread) {
-//            arena.release();
+            arena.release();
             return svc->CallMethod(method, cntl.release(), 
                                    req.release(), res.release(), done);
         }
         if (BeginRunningUserCode()) {
-//            arena.release();
+            arena.release();
             svc->CallMethod(method, cntl.release(), 
                             req.release(), res.release(), done);
             return EndRunningUserCodeInPlace();
         } else {
-//            arena.release();
+            arena.release();
             return EndRunningCallMethodInPool(
                 svc, method, cntl.release(),
                 req.release(), res.release(), done);
