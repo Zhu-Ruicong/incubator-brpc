@@ -156,7 +156,7 @@ void SendRpcResponse(int64_t correlation_id,
     }
     Socket* sock = accessor.get_sending_socket();
     std::unique_ptr<Controller, LogErrorTextAndDelete> recycle_cntl(cntl);
-    std::unique_ptr<const google::protobuf::Arena> recycle_arena;
+    std::shared_ptr<const google::protobuf::Arena> recycle_arena;
     std::unique_ptr<const google::protobuf::Message> recycle_req;
     std::unique_ptr<const google::protobuf::Message> recycle_res;
     ConcurrencyRemover concurrency_remover(method_status, cntl, received_us);
@@ -168,7 +168,7 @@ void SendRpcResponse(int64_t correlation_id,
         }
     }
     if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest && arena) {
-        recycle_arena.reset(arena);
+        recycle_arena = cntl->get_arena_shared_ptr();
     } else {
         recycle_req.reset(req);
         recycle_res.reset(res);
@@ -293,6 +293,7 @@ void SendRpcResponse(int64_t correlation_id,
 
     if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest && arena) {
         recycle_arena.reset();
+        recycle_cntl.reset();
         if (span) {
             span->set_req_released_us(butil::cpuwide_time_us());
             span->set_resp_released_us(butil::cpuwide_time_us());
@@ -382,12 +383,13 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
         LOG(WARNING) << "Fail to new Controller";
         return;
     }
-    std::unique_ptr<google::protobuf::Arena> arena;
+    std::shared_ptr<google::protobuf::Arena> arena;
     if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest) {
         google::protobuf::ArenaOptions options;
         options.start_block_size = FLAGS_brpc_protobuf_arena_start_block_size;
         options.max_block_size = FLAGS_brpc_protobuf_arena_max_block_size;
         arena.reset(new google::protobuf::Arena(options));
+        cntl->set_arena_ptr(arena);
         if (NULL == arena.get()) {
             LOG(WARNING) << "brpc_use_protobuf_arena_in_processrpcrequest is true but fail to new arena";
             return;
@@ -561,17 +563,14 @@ void ProcessRpcRequest(InputMessageBase* msg_base) {
             span->AsParent();
         }
         if (!FLAGS_usercode_in_pthread) {
-            arena.release();
             return svc->CallMethod(method, cntl.release(), 
                                    req.release(), res.release(), done);
         }
         if (BeginRunningUserCode()) {
-            arena.release();
-            svc->CallMethod(method, cntl.release(), 
+            svc->CallMethod(method, cntl.release(),
                             req.release(), res.release(), done);
             return EndRunningUserCodeInPlace();
         } else {
-            arena.release();
             return EndRunningCallMethodInPool(
                 svc, method, cntl.release(),
                 req.release(), res.release(), done);

@@ -43,6 +43,7 @@
 #include "brpc/progressive_attachment.h"       // ProgressiveAttachment
 #include "brpc/progressive_reader.h"           // ProgressiveReader
 #include "brpc/grpc.h"
+#include <google/protobuf/arena.h>
 
 // EAUTH is defined in MAC
 #ifndef EAUTH
@@ -339,6 +340,14 @@ public:
     // Note: Reaching deadline of the RPC would not affect this function, which means
     // even if deadline has been reached, this function may still return false.
     bool IsCanceled() const override;
+
+    void set_arena_ptr(const std::shared_ptr<google::protobuf::Arena>& arena) {
+        _arena_ptr = arena;
+    }
+
+    std::shared_ptr<google::protobuf::Arena> get_arena_shared_ptr() {
+        return _arena_ptr;
+    }
 
     // Asks that the given callback be called when the RPC is canceled or the
     // connection has broken.  The callback will always be called exactly once.
@@ -757,6 +766,8 @@ private:
 
     // Thrift method name, only used when thrift protocol enabled
     std::string _thrift_method_name;
+
+    std::shared_ptr<google::protobuf::Arena> _arena_ptr;
 };
 
 // Advises the RPC system that the caller desires that the RPC call be
