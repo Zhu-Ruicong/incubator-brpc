@@ -160,14 +160,7 @@ void SendRpcResponse(int64_t correlation_id,
     std::unique_ptr<const google::protobuf::Message> recycle_req;
     std::unique_ptr<const google::protobuf::Message> recycle_res;
     ConcurrencyRemover concurrency_remover(method_status, cntl, received_us);
-    const google::protobuf::Arena* arena = NULL;
-    if (res) {
-        arena = res->GetArena();
-        if (NULL == arena && req) {
-            arena = req->GetArena();
-        }
-    }
-    if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest && arena) {
+    if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest) {
         recycle_arena = cntl->get_arena_shared_ptr();
     } else {
         recycle_req.reset(req);
@@ -291,7 +284,7 @@ void SendRpcResponse(int64_t correlation_id,
         span->set_sent_us(butil::cpuwide_time_us());
     }
 
-    if (true == FLAGS_brpc_use_protobuf_arena_in_processrpcrequest && arena) {
+    if (FLAGS_brpc_use_protobuf_arena_in_processrpcrequest) {
         recycle_arena.reset();
         recycle_cntl.reset();
         if (span) {
