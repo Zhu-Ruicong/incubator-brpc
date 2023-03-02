@@ -375,9 +375,9 @@ const LogSeverity BLOG_DFATAL = BLOG_ERROR;
 // A few definitions of macros that don't generate much code. These are used
 // by LOG() and LOG_IF, etc. Since these are used all over our code, it's
 // better to have compact code for these operations.
-#define BAIDU_COMPACT_LOG_EX(severity, ClassName, ...)  \
-    ::logging::ClassName(__FILE__, __LINE__,            \
-    ::logging::BLOG_##severity, ##__VA_ARGS__)
+    #define BAIDU_COMPACT_LOG_EX(severity, ClassName, ...)  \
+        ::logging::ClassName(__FILE__, __LINE__,            \
+        ::logging::BLOG_##severity, ##__VA_ARGS__)
 #endif
 
 #define BAIDU_COMPACK_LOG(severity)             \
@@ -539,7 +539,7 @@ void print_vlog_sites(VLogSitePrinter*);
         #define VPLOG_STREAM(verbose_level)                                     \
              ::logging::ErrnoLogMessage(__FILE__, __LINE__, -verbose_level,      \
                                        ::logging::GetLastSystemErrorCode()).stream()
-        #endif
+    #endif
 #endif
 
 #define VPLOG(verbose_level)                                            \
@@ -617,6 +617,8 @@ void print_vlog_sites(VLogSitePrinter*);
             ::logging::Check##name##Impl((val1), (val2),                    \
                                          #val1 " " #op " " #val2))          \
             ::logging::LogMessage(__FILE__, __LINE__, _result).stream().SetCheck()
+#endif
+
 #endif
 
 // Build the error message string.  This is separate from the "Impl"
