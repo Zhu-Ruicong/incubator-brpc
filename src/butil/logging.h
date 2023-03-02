@@ -617,7 +617,6 @@ void print_vlog_sites(VLogSitePrinter*);
             ::logging::Check##name##Impl((val1), (val2),                    \
                                          #val1 " " #op " " #val2))          \
             ::logging::LogMessage(__FILE__, __LINE__, _result).stream().SetCheck()
-    #endif
 #endif
 
 // Build the error message string.  This is separate from the "Impl"
@@ -1038,7 +1037,7 @@ inline void LogAtLevel(int const log_level, const butil::StringPiece &msg) {
 #else
         LogMessage(__FILE__, __LINE__, log_level).stream() << msg;
 #endif
-    }}
+}
 
 // This class is used to explicitly ignore values in the conditional
 // logging macros.  This avoids compiler warnings like "value computed
